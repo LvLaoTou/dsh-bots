@@ -193,6 +193,20 @@ up), and several messages (you ask, then add "include the UK in the Europe one",
   it answered a card itself, without a task, it marks it done.
 - Only what you ask for is a request: work teammates ask each other for, and work a schedule starts, is not.
 
+### The charter: one Markdown file that says how the project is run
+
+Every project can have a Markdown charter of its own (the **Charter** pane of its page). It is AGENTS.md for one project:
+**who does what** (who leads, what each role owns), **how the cast works together** (who reports to whom, what must stop and
+ask the person), and **where the memory goes**. Every conversation of the project reads it — each member's, and every task
+filed under it — so editing it changes how the work is done for everyone, instead of being told again each time.
+
+- **A real file**, not a prompt constant: by default `~/.dsh/cache/bots/charters/<project id>.md`. With a folder set on
+  the board you can point it inside that folder (the project form's **Charter file**, or just `CHARTER.md`), so it is
+  committed and reviewed with the code.
+- **Fill from the cast** writes a starting skeleton from the current members, the lead first.
+- **Saving it empty removes it**: a project with no charter has no file, rather than an empty document.
+- It holds up to 16000 characters; past what the prompt carries, the rest is named as a file to read.
+
 ### Project groups: a standing cast, and a memory of its own
 
 A project is more than where cards are numbered: it is a **standing cast**. Put bots on it (the project form's

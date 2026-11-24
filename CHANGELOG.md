@@ -5,6 +5,17 @@ English | [简体中文](CHANGELOG.zh-CN.md)
 What changed in each version of Bots, newest first, and what to do after upgrading. Bots tells you when a new
 version is out ([Updates](README.md#updates)).
 
+## 0.18.1 — 2026-11-24
+
+- **A project can have a charter of its own.** Its page gained a **Charter** pane: one Markdown file saying who does what,
+  how the cast works together, and where the memory goes. Every conversation of the project, and every task filed under
+  it, reads it — so editing it changes how the work is done. By default `~/.dsh/cache/bots/charters/<project id>.md`;
+  with a folder set on the board it can live there as `CHARTER.md` and be committed with the code. **Fill from the
+  cast** writes a starting skeleton; saving it empty removes it, so no project carries an empty document.
+- New `bot_charter` tool: a bot may read and write the charter of the project it is in (read first — it is the
+  person's file).
+- A charter that cannot be read never fails a conversation; it is logged once.
+
 ## 0.18.0 — 2026-11-24
 
 - **Project groups: a project is a standing cast, with a memory of its own.** A project used to decide only card numbers

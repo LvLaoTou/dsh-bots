@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
     const NS = 'bots';
     const PANEL_ID = 'bots';
     /** The Bots this page is (package.json): the Host says which one it runs, and a stale Host is pointed out. */
-    const BOTS_VERSION = '0.18.0';
+    const BOTS_VERSION = '0.18.1';
     /** How close to a new topic Harness closing the panel counts as caused by it (it archived the conversation behind). */
     const ROTATE_WINDOW_MS = 3000;
     const R = '/__dsh_bots/';
@@ -8009,6 +8009,74 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
     }
 
     /**
+     * A project's charter (Bots 0.18.1): the Markdown file that says what the project is, who does what,
+     * how the cast works together and where the memory goes. Written here, saved to a real file, read by
+     * every conversation of the project.
+     */
+    function CharterEditor({ t, project, lang, toast }) {
+      const { data, reload } = useJson(`projects/charter?id=${encodeURIComponent(project)}`, 0);
+      const [text, setText] = useState(null);
+      const [busy, setBusy] = useState(false);
+      const [problem, setProblem] = useState('');
+      const saved = data?.text ?? '';
+      // The editor starts from the file; once the person types it is theirs (`text !== null`).
+      const value = text ?? saved;
+      const dirty = text !== null && text !== saved;
+      const apply = (next) => {
+        setText(next);
+        setProblem('');
+      };
+      const loadTemplate = () =>
+        getJson(`projects/charter/template?id=${encodeURIComponent(project)}&lang=${lang === 'zh' ? 'zh' : 'en'}`)
+          .then((r) => (r?.ok ? apply(r.text) : setProblem(r?.reason || t('actionFailed'))))
+          .catch(() => setProblem(t('actionFailed')));
+      const save = () => {
+        if (busy || !dirty) return;
+        setBusy(true);
+        setProblem('');
+        void postJson('projects/charter', { id: project, text: value })
+          .then((r) => {
+            if (r?.ok) {
+              toast(r.exists ? t('charterSaved') : t('charterRemoved'));
+              setText(null);
+              void reload();
+            } else setProblem(r?.reason || t('actionFailed'));
+          })
+          .finally(() => setBusy(false));
+      };
+      return h(
+        'div',
+        { 'data-dsh-bots-charter': project, style: { display: 'flex', flexDirection: 'column', gap: 10, padding: '16px 24px 24px', minHeight: 0, flex: 1 } },
+        h(
+          'div',
+          { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' } },
+          h(
+            'div',
+            { style: { flex: '1 1 240px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 } },
+            h('span', { style: { fontWeight: 600 } }, t('charterTitle')),
+            h('span', { className: 'dshb-mono', 'data-dsh-bots-charter-path': true, style: { fontSize: TINY, color: C.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, data?.path || ''),
+          ),
+          h(Btn, { size: 'sm', kind: 'ghost', onClick: loadTemplate, 'data-dsh-bots-charter-template': true }, t('charterTemplate')),
+          h(Btn, { size: 'sm', kind: 'primary', disabled: busy || !dirty, onClick: save, 'data-dsh-bots-charter-save': true }, t('save')),
+        ),
+        h('div', { style: { fontSize: SMALL, color: C.muted, lineHeight: 1.6 } }, t('charterHint')),
+        data?.problem ? h('div', { style: { fontSize: SMALL, color: C.error } }, data.problem) : null,
+        problem ? h('div', { 'data-dsh-bots-charter-error': true, style: { fontSize: SMALL, color: C.error } }, problem) : null,
+        h(TextArea, {
+          value,
+          rows: 22,
+          maxLength: data?.limit ?? 16_000,
+          mono: true,
+          placeholder: t('charterPlaceholder'),
+          'data-dsh-bots-charter-text': true,
+          onChange: (e) => apply(e.target.value),
+          style: { flex: 1, minHeight: 240, resize: 'vertical', lineHeight: 1.55 },
+        }),
+        dirty ? h('div', { style: { fontSize: TINY, color: C.warn } }, t('charterDirty')) : null,
+      );
+    }
+
+    /**
      * The project groups (Bots 0.17.5), as a list to open: each one's cast, and what it is about. A
      * project's page is where you talk to its bots, each in the conversation it keeps for that project.
      */
@@ -8052,14 +8120,18 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
      * picked on the right. Each member talks here in its own conversation, which reads this project's
      * memory only — that is the point of the group, so the page says so.
      */
-    function ProjectGroupView({ t, project, bots, toast, env, onBack }) {
+    function ProjectGroupView({ t, project, bots, toast, env, lang, onBack }) {
       const { data, failed, reload } = useJson(`projects/group?id=${encodeURIComponent(project)}`, 15_000);
       const [withId, setWithId] = useState('');
+      // Which half of the project page: the conversation with a member, or its charter (Bots 0.18.1).
+      const [pane, setPane] = useState('chat');
       const view = data?.project;
       const members = Array.isArray(data?.bots) ? data.bots : [];
       // The first member (the project's lead) is who the page opens on.
       const member = members.find((m) => m.id === withId) ?? members[0];
       const cast = Array.isArray(view?.members) ? view.members : [];
+      const tab = (id, label) =>
+        h('button', { key: id, type: 'button', className: 'dshb-chip', 'data-active': pane === id, 'data-dsh-bots-project-pane': id, onClick: () => setPane(id) }, label);
       return h(
         'div',
         { 'data-dsh-bots-project-group': project, style: { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 } },
@@ -8073,10 +8145,14 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
             h('span', { style: { fontWeight: 700, fontSize: 18 } }, [view ? `${view.key} · ${view.name}` : t('projectGroup')]),
             h('span', { style: { fontSize: SMALL, color: C.muted } }, view?.dir || t('projectGroupSub')),
           ),
+          h('div', { style: { display: 'flex', gap: 4 } }, tab('chat', t('projectPaneChat')), tab('charter', t('charterTitle'))),
         ),
-        failed
-          ? h('div', { style: { padding: 24, fontSize: SMALL, color: C.faint } }, t('actionFailed'))
-          : members.length === 0
+        // The charter is the same file whoever is picked, so it does not need the cast beside it.
+        pane === 'charter'
+          ? h(CharterEditor, { t, project, lang, toast })
+          : failed
+            ? h('div', { style: { padding: 24, fontSize: SMALL, color: C.faint } }, t('actionFailed'))
+            : members.length === 0
             ? h('div', { 'data-dsh-bots-project-group-empty': true, style: { padding: '32px 24px', display: 'flex', flexDirection: 'column', gap: 8 } }, h('span', { style: { fontWeight: 600 } }, t('projectGroupEmptyTitle')), h('span', { style: { fontSize: SMALL, color: C.muted } }, t('projectGroupEmptyBody')))
             : h(
                 'div',
@@ -9190,7 +9266,7 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         main = h('div', { style: { flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.faint, fontSize: SMALL } }, s.failed ? t('unavailable') : t('loading'));
       } else if (shownView === 'project') {
         main = projectId
-          ? h(ProjectGroupView, { key: projectId, t, project: projectId, bots, env: env2, toast: showToast, onBack: () => setProjectId(null) })
+          ? h(ProjectGroupView, { key: projectId, t, project: projectId, bots, env: env2, toast: showToast, lang, onBack: () => setProjectId(null) })
           : h(ProjectListView, { t, onOpen: setProjectId });
       } else if (shownView === 'needs') {
         const toTask = (id) => {
@@ -10419,6 +10495,14 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         projectGroupNoProjects: 'No projects yet: make one on the board, then add its bots.',
         projectGroupEmptyTitle: 'No bots in this project yet',
         projectGroupEmptyBody: 'Edit the project on the board and add its cast. Each bot then gets a conversation here that reads this project\'s memory only.',
+        projectPaneChat: 'Chat',
+        charterTitle: 'Charter',
+        charterHint: 'This is the project\'s own Markdown file: what it is, who does what, how the cast works together, where the memory goes. Every conversation of the project reads it, so editing it changes how the work is done. Leave the project\'s folder path on the board and the file can be kept in its repository as CHARTER.md.',
+        charterPlaceholder: '# What this project is, who does what, how you work together, where the memory goes…',
+        charterTemplate: 'Fill from the cast',
+        charterSaved: 'Charter saved.',
+        charterRemoved: 'Charter removed: this project has none now.',
+        charterDirty: 'Unsaved changes.',
         projectBrief: 'Brief',
         projectBriefHint: 'Every task of the project reads it: goals, conventions, links.',
         projectBriefPlaceholder: 'What this project is, and how work on it is done',
@@ -11524,6 +11608,14 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         projectGroupNoProjects: '还没有项目：先在看板上建一个，再把 bot 加进去。',
         projectGroupEmptyTitle: '这个项目里还没有 bot',
         projectGroupEmptyBody: '到看板上编辑这个项目、加上成员。每个成员随后会在这里有一个会话，只读这个项目的记忆。',
+        projectPaneChat: '对话',
+        charterTitle: '章程',
+        charterHint: '这是项目自己的 Markdown 文件：这个项目是什么、谁负责什么、大家怎么配合、记忆放在哪儿。项目的每个会话都会读到它，改了它就等于改了这件事的干法。项目在看板上设了目录的话，这份文件可以留在那个仓库里当 CHARTER.md。',
+        charterPlaceholder: '# 这个项目是什么、谁负责什么、怎么配合、记忆放到哪儿……',
+        charterTemplate: '按成员生成',
+        charterSaved: '章程已保存。',
+        charterRemoved: '章程已删除：这个项目现在没有章程。',
+        charterDirty: '有改动还没保存。',
         projectBrief: '简介',
         projectBriefHint: '项目的每个任务都会读到：目标、约定、链接。',
         projectBriefPlaceholder: '这个项目是什么，活怎么干',

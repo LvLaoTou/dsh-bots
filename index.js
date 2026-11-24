@@ -55,6 +55,7 @@ import { createSlots, createTickets, parkedOf, REPORT_STATUSES, sessionIdOf, sta
 import { clampNeedTitle, createNeeds, MAX_AFTER, MAX_DESCRIPTION, NEED_ID_RE, needStatus } from './lib/needs.mjs';
 import { CARD_REF_RE, createProjects, MAX_MEMBERS, PROJECT_ID_RE } from './lib/projects.mjs';
 import { createProjectSessions } from './lib/project-sessions.mjs';
+import { charterPathOf, charterTemplate, CHARTER_FILE, hasCharter, MAX_CHARTER, readCharter, writeCharter } from './lib/charter.mjs';
 import { assignmentText, clip, discussionNoteText, failedNoticeText, followUpNoticeText, NEWS_MESSAGES, nudgeText, panelHeaderText, PREVIEW_CHARS, readResource, recoveryNoteText, reminderText, reportRelayText, retryText, shownNoticeText, stalledNoticeText, threadNewsText } from './lib/cards.mjs';
 import { checkTickets, isEmptyResponse, isTransient, requesterReminders, retryDelay } from './lib/watchdog.mjs';
 import { isLiveSubscriber, isPanelThread, isTopicThread, panelThreadKey, panelTopicOf, parseThreadKey, threadLabel, toThreadKey } from './lib/threads.mjs';
@@ -119,7 +120,7 @@ const AVATAR_ATTEMPTS = 3;
 /** Errors from a gateway or the network rather than from the request itself. */
 export const TRANSIENT = /\b(408|409|429|500|502|503|504|520|522|524)\b|connection (lost|reset|closed)|ECONNRESET|ETIMEDOUT|EPIPE|socket hang up|fetch failed|could not reach|did not answer within|overloaded|temporarily/i;
 
-export const TOOL_NAMES = ['bot_list', 'bot_create', 'bot_update', 'bot_delete', 'bot_send_message', 'bot_reply', 'bot_recall', 'bot_ticket', 'bot_need', 'bot_schedule', 'memory_save', 'memory_forget', 'memory_search'];
+export const TOOL_NAMES = ['bot_list', 'bot_create', 'bot_update', 'bot_delete', 'bot_send_message', 'bot_reply', 'bot_recall', 'bot_ticket', 'bot_need', 'bot_schedule', 'bot_charter', 'memory_save', 'memory_forget', 'memory_search'];
 /** Message ids of the plugin's own deliveries start with this, so a retry can tell it already delivered one. */
 const MESSAGE_PREFIX = 'bots:';
 /** The largest request body a route takes; an image upload (base64, Bots 0.17) may be larger. */
@@ -641,7 +642,8 @@ export function apply(ctx, config, deps = {}) {
   function projectsForPersona(ticket) {
     try {
       const own = ticket?.projectId ? projects.get(ticket.projectId) : undefined;
-      return { projects: projects.list(), ...(own ? { project: own } : {}) };
+      // A task of a project reads that project's charter too (Bots 0.18.1).
+      return { projects: projects.list(), ...(own ? { project: { ...own, ...charterOf(own) } } : {}) };
     } catch (error) {
       ctx.logger?.warn?.(`bots: projects: ${error?.message ?? error}`);
       return {};
@@ -650,7 +652,7 @@ export function apply(ctx, config, deps = {}) {
 
   /**
    * The project a conversation is the home of, with its cast, as `personaText` reads it (Bots 0.17.5),
-   * or undefined when it is not a project conversation.
+   * or undefined when it is not a project conversation. Its charter goes along (0.18.1).
    */
   function projectGroupFor(sessionId) {
     try {
@@ -659,11 +661,37 @@ export function apply(ctx, config, deps = {}) {
       const p = projects.get(pair.projectId);
       if (!p) return undefined;
       const members = p.members.map((id) => store.get(id)).filter(Boolean);
-      return { key: p.key, name: p.name, brief: p.brief, dir: p.dir, lead: members[0], members };
+      return { key: p.key, name: p.name, brief: p.brief, dir: p.dir, lead: members[0], members, ...charterOf(p) };
     } catch (error) {
       ctx.logger?.warn?.(`bots: project group: ${error?.message ?? error}`);
       return undefined;
     }
+  }
+
+  /**
+   * A project's charter as the prompt reads it (Bots 0.18.1): its path and text, or nothing when the
+   * project has no file yet. A charter that cannot be read is logged and left out rather than failing
+   * the conversation — the work can go on without it.
+   * @param {object} project
+   */
+  function charterOf(project) {
+    try {
+      const path = charterPathOf(project, { cacheDir: dir, home });
+      const text = path ? readCharter(path) : '';
+      return text.trim() ? { charterPath: path, charter: text } : {};
+    } catch (error) {
+      ctx.logger?.warn?.(`bots: charter of project ${project?.key ?? '?'}: ${error?.message ?? error}`);
+      return {};
+    }
+  }
+
+  /**
+   * The charters the prompt has already read are dropped, so the next assembly reads the file again:
+   * a charter is edited outside a conversation, and must apply without restarting anything. The
+   * per-Session prompt text is cached (`memoText`), so both caches go.
+   */
+  function staleCharter() {
+    staleMemory();
   }
 
   // --- sessions ---------------------------------------------------------------------
@@ -5184,6 +5212,46 @@ export function apply(ctx, config, deps = {}) {
       },
     }),
     defineTool({
+      name: 'bot_charter',
+      description:
+        "Read or write a project group's charter: the Markdown file that says what the project is, who does what, how the cast works together and where its memory goes (Bots 0.18.1). Every conversation of the project reads it, so an edit changes how the work is done for everyone. Read it before changing it, and keep what the person wrote: this is their document, not a scratch pad.",
+      parameters: {
+        project: { type: 'string', required: true, description: 'The project group, by key (like APP) or id.' },
+        text: { type: 'string', description: 'The whole new charter. Leave it out to just read the current one; pass an empty string to remove the project\'s charter.' },
+        template: { type: 'boolean', description: 'true to get the starting template filled from the project\'s cast (read only: nothing is written).' },
+      },
+      output: { schema: anyValue, render: (_a, v) => text(v.text) },
+      execute: async (args) => {
+        const p = projectByRef(args.project);
+        const path = charterPathOf(p, { cacheDir: dir, home });
+        const members = p.members.map((id) => store.get(id)).filter(Boolean);
+        if (args.template === true) {
+          const lang = String(members.length ? p.name : '').match(/[\u4e00-\u9fff]/) ? 'zh' : 'en';
+          const text0 = charterTemplate({ key: p.key, name: p.name, members }, lang);
+          return { ok: true, text: text0, project: p.key, path };
+        }
+        if (args.text === undefined) {
+          const current = readCharter(path);
+          return {
+            ok: true,
+            project: p.key,
+            path,
+            exists: Boolean(current.trim()),
+            text: current.trim() ? current : `project ${p.key} has no charter yet (nothing at ${path}). Write one with bot_charter { project, text }, or start from the template.`,
+          };
+        }
+        const written = writeCharter(path, String(args.text ?? ''));
+        staleCharter();
+        return {
+          ok: true,
+          project: p.key,
+          path,
+          exists: Boolean(written),
+          text: written ? `Charter of ${p.key} saved (${written.length} characters at ${path}); its conversations read it at their next step.` : `Charter of ${p.key} removed; the project has none now.`,
+        };
+      },
+    }),
+    defineTool({
       name: 'bot_need',
       description:
         'Keep the person\'s requests (needs) as they mean them; the panel shows each as a card on its board, with how far its tasks got. `rename` one when they change what they want (`title`: the new short line), `merge` one into another when two turn out to be the same request (`into`: the need that stays), `drop` one when they no longer want it (its open tasks stop), mark one `done` when it was answered without a task (a card you answered yourself) or the person says it is done (its open tasks are closed), `file` one under a project (`project`: its key; empty for none), make a card in To do wait for others with `after` (it starts by itself once they are done: when the person says "do OPC-12 after OPC-11"). `bot_recall` with `needs` lists them.',
@@ -6278,6 +6346,45 @@ export function apply(ctx, config, deps = {}) {
     teams: { get: () => teamsView() },
     // Projects (Bots 0.12): what the cards on the board are filed under.
     projects: { get: () => ({ items: projects.list().map(projectView) }) },
+    /**
+     * A project's charter (Bots 0.18.1): its path, its text and whether the file is there yet. Reading
+     * it never creates the file, so opening a project's page leaves nothing behind.
+     */
+    'projects/charter': {
+      get: (url) => {
+        const p = projects.get(String(url.searchParams.get('id') ?? ''));
+        if (!p) return { ok: false, reason: 'no such project' };
+        const path = charterPathOf(p, { cacheDir: dir, home });
+        let text = '';
+        let problem = '';
+        try {
+          text = readCharter(path);
+        } catch (error) {
+          problem = error?.message ?? String(error);
+        }
+        return { ok: true, path, text, exists: hasCharter(path), ...(problem ? { problem } : {}), limit: MAX_CHARTER, ...(p.dir ? { dir: p.dir } : {}) };
+      },
+      post: (body) => {
+        const p = projects.get(String(body?.id ?? ''));
+        if (!p) throw new Error('no such project');
+        const path = charterPathOf(p, { cacheDir: dir, home });
+        if (!path) throw new Error('this project has no place for a charter');
+        // An empty text removes the file: the project then has no charter, rather than an empty one.
+        const text = writeCharter(path, String(body?.text ?? ''));
+        staleCharter();
+        return { ok: true, path, text, exists: Boolean(text) };
+      },
+    },
+    /** The charter a project starts from, as a starting point to edit: the person's own template. */
+    'projects/charter/template': {
+      get: (url) => {
+        const p = projects.get(String(url.searchParams.get('id') ?? ''));
+        if (!p) return { ok: false, reason: 'no such project' };
+        const lang = String(url.searchParams.get('lang') ?? '') === 'zh' ? 'zh' : 'en';
+        const members = p.members.map((id) => store.get(id)).filter(Boolean);
+        return { ok: true, text: charterTemplate({ key: p.key, name: p.name, members }, lang) };
+      },
+    },
     'projects/save': {
       post: (body) => {
         const input = body?.project && typeof body.project === 'object' ? body.project : {};

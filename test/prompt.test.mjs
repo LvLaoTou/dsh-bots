@@ -289,3 +289,38 @@ test('0.15: a team with a lead says so in the roster; the dispatcher goes throug
   const inTask = personaText(builder, all, { ticket: { ...ticket, botId: builder.id }, teamNames });
   assert.match(inTask, /## You lead Software squad/);
 });
+
+test('a project charter is carried into a task of the project (0.18.1)', () => {
+  const project = { key: 'NAICHA', name: 'Caffeine log', brief: 'A mini-app.', charter: '# Charter\n\n@pm leads. @arch decides the stack.', charterPath: '/cache/charters/pj1.md' };
+  const text = personaText(coder, roster, { ticket: { ...ticket }, project });
+  assert.match(text, /## The project charter \(\/cache\/charters\/pj1\.md\)/);
+  assert.match(text, /@pm leads\. @arch decides the stack\./);
+  assert.match(text, /this one wins/, 'the charter is the authority, not a suggestion');
+  // Without a charter the section is simply not there.
+  const plain = personaText(coder, roster, { ticket: { ...ticket }, project: { ...project, charter: '' } });
+  assert.doesNotMatch(plain, /The project charter/);
+});
+
+test('a project group reads its charter too, and says it wins over the persona there (0.18.1)', () => {
+  const project = {
+    key: 'NAICHA',
+    name: 'Caffeine log',
+    brief: 'A mini-app.',
+    charter: '# Charter\n\n## Roles\n- @pm leads.',
+    charterPath: '/cache/charters/pj1.md',
+    lead: roster[1],
+    members: roster,
+  };
+  const text = personaText(coder, roster, { projectGroup: project });
+  assert.match(text, /You are working in project NAICHA/);
+  assert.match(text, /## The project charter/);
+  assert.match(text, /- @pm leads\./);
+  assert.match(text, /this one wins/);
+});
+
+test('a huge charter is clipped in the prompt, and says where the rest is (0.18.1)', () => {
+  const project = { key: 'BIG', name: 'Big', charter: 'z'.repeat(20_000), charterPath: '/x/CHARTER.md' };
+  const text = personaText(coder, roster, { ticket: { ...ticket }, project });
+  assert.match(text, /the charter goes on; it is at \/x\/CHARTER\.md/);
+  assert.ok(text.length < 20_000 + 5000, 'the prompt carries the clipped charter, not the whole file');
+});
