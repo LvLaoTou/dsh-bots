@@ -1266,7 +1266,7 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         h('span', { style: { flex: 1, minWidth: 0, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, label),
         badge > 0 ? h(NeedsBadge, { n: badge, label: badgeLabel, attr: badgeAttr }) : count > 0 ? h('span', { 'data-dsh-bots-nav-count': count, style: { flex: 'none', fontSize: TINY, color: C.muted, fontVariantNumeric: 'tabular-nums' } }, count > 99 ? '99+' : String(count)) : null,
       );
-    function Rail({ t, bots, primaryId, selected, onSelect, onNew, onNewTeam, onEditTeam, onTeams, view, onActivity, messageCount, onUsage, onMemory, onSettings, teamNotes, onTasks, attention = 0, openTasks = 0, onNeeds, needCounts = {} }) {
+    function Rail({ t, bots, primaryId, selected, onSelect, onNew, onNewTeam, onEditTeam, onTeams, view, onActivity, messageCount, onUsage, onMemory, onSettings, teamNotes, onTasks, attention = 0, openTasks = 0, onNeeds, needCounts = {}, onProjects, projectsCount = 0 }) {
       const needsWaiting = Number(needCounts?.waiting) || 0;
       const needsWorking = Number(needCounts?.working) || 0;
       const lang = langOf(t);
@@ -1442,6 +1442,7 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
                 count: openTasks,
               })
             : null,
+          h(NavTile, { icon: Icon.target(15), label: t('projects'), hint: t('projectsNavHint'), active: view === 'project', attr: 'data-dsh-bots-projects-entry', onClick: onProjects }),
           h(NavTile, { icon: Icon.activity(15), label: t('activity'), hint: t('activityHint', { n: messageCount ?? 0 }), active: view === 'activity', attr: 'data-dsh-bots-activity', onClick: onActivity }),
           onUsage ? h(NavTile, { icon: Icon.chart(15), label: t('usage'), hint: t('usageHint', { tokens: fmtNum(bots.reduce((n, b) => n + (Number(b.usageToday) || 0), 0)) }), active: view === 'usage', attr: 'data-dsh-bots-usage-entry', onClick: onUsage }) : null,
           onMemory ? h(NavTile, { icon: Icon.brain(15), label: t('navMemory'), hint: `${t('teamMemoryTitle')} · ${t('teamMemoryHint', { n: teamNotes ?? 0 })}`, active: view === 'memory', attr: 'data-dsh-bots-memory-entry', onClick: onMemory }) : null,
@@ -2443,7 +2444,7 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
      * and, per message with a thread, `threads[rootId]`, its summary (PLAN-0.10 §7.2). With `topic`, one
      * thread: its root and its replies.
      */
-    function useMessages(botId, active = true, topic = '') {
+    function useMessages(botId, active = true, topic = '', project = '') {
       const [data, setData] = useState(null);
       const [failed, setFailed] = useState(false);
       const alive = useRef(true);
@@ -2453,10 +2454,10 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         return () => {
           alive.current = false;
         };
-      }, [botId, topic]);
+      }, [botId, topic, project]);
       const load = () =>
         Promise.resolve()
-          .then(() => getJson(`messages?limit=${topic ? 500 : 200}${botId ? `&bot=${encodeURIComponent(botId)}` : ''}${topic ? `&topic=${encodeURIComponent(topic)}` : ''}`))
+          .then(() => getJson(`messages?limit=${topic ? 500 : 200}${botId ? `&bot=${encodeURIComponent(botId)}` : ''}${topic ? `&topic=${encodeURIComponent(topic)}` : ''}${project ? `&project=${encodeURIComponent(project)}` : ''}`))
           .then((r) => {
             if (!alive.current) return;
             if (r && Array.isArray(r.items)) {
@@ -2823,8 +2824,9 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
       );
     }
 
-    function ChatTab({ t, bot, env, toast }) {
-      const { items: listed, threads, failed, reload } = useMessages(bot.id);
+    function ChatTab({ t, bot, env, toast, project = '', projectKey = '' }) {
+      // Inside a project group, this chat is that project's conversation with the bot (Bots 0.17.5).
+      const { items: listed, threads, failed, reload } = useMessages(bot.id, true, '', project);
       const [text, setText] = useState('');
       // Messages sent from here: shown at once (queued), then the Host's own copy; a failed one stays to be sent again.
       const [local, setLocal] = useState([]);
@@ -2904,7 +2906,7 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         const quoted = target ? { id: target.id, from: target.from, text: str(target.text), ...(str(target.who) ? { who: str(target.who) } : {}) } : null;
         const row = { id, local: true, pending: true, from: 'user', to: bot.id, chat: bot.id, kind: 'user', text: body, at: Date.now(), ...(topic ? { topic } : {}), ...(replyTo && replyTo !== topic ? { replyTo } : {}), ...(quoted ? { quote: quoted } : {}), ...(imgs.length ? { images: imgs } : {}) };
         setLocal((list) => [...list.filter((m) => m.id !== id), row]);
-        return postJson('send', { to: bot.id, text: body, ...(replyTo ? { replyTo } : {}), ...(imgs.length ? { images: imgs.map((i) => i.id) } : {}) }).then((r) => {
+        return postJson('send', { to: bot.id, text: body, ...(replyTo ? { replyTo } : {}), ...(project ? { project } : {}), ...(imgs.length ? { images: imgs.map((i) => i.id) } : {}) }).then((r) => {
           if (r?.ok) {
             const msg = r.message && typeof r.message === 'object' && r.message.id != null ? r.message : null;
             setLocal((list) => list.flatMap((m) => (m.id !== id ? [m] : msg ? [{ ...msg, pending: msg.pending ?? true, chat: msg.chat ?? bot.id }] : [])));
@@ -8006,6 +8008,109 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
       );
     }
 
+    /**
+     * The project groups (Bots 0.17.5), as a list to open: each one's cast, and what it is about. A
+     * project's page is where you talk to its bots, each in the conversation it keeps for that project.
+     */
+    function ProjectListView({ t, onOpen }) {
+      const { data, failed } = useJson('projects', STATE_POLL_MS * 6);
+      const items = Array.isArray(data?.items) ? data.items : [];
+      return h(
+        'div',
+        { 'data-dsh-bots-project-list': items.length, style: { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 } },
+        h(
+          'header',
+          { style: { padding: '18px 24px 14px', borderBottom: `1px solid ${C.border1}`, display: 'flex', flexDirection: 'column', gap: 2 } },
+          h('span', { style: { fontWeight: 700, fontSize: 18 } }, t('projects')),
+          h('span', { style: { fontSize: SMALL, color: C.muted } }, t('projectGroupSub')),
+        ),
+        h(
+          'div',
+          { className: 'dshb-scroll', style: { flex: 1, padding: '16px 24px 24px', display: 'flex', flexDirection: 'column', gap: 10 } },
+          failed
+            ? h('div', { style: { fontSize: SMALL, color: C.faint } }, t('actionFailed'))
+            : items.length === 0
+              ? h('div', { style: { fontSize: SMALL, color: C.faint } }, t('projectGroupNoProjects'))
+              : items.map((p) =>
+                  h(
+                    'button',
+                    { key: p.id, type: 'button', className: 'dshb-card', 'data-dsh-bots-project-open': p.id, onClick: () => onOpen(p.id), style: { display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', textAlign: 'left', cursor: 'pointer', border: `1px solid ${C.border1}`, background: 'transparent' } },
+                    h(CardRef, { text: p.key }),
+                    h(
+                      'div',
+                      { style: { flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 } },
+                      h('span', { style: { fontWeight: 600 } }, p.name),
+                      h('span', { style: { fontSize: TINY, color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, (p.members ?? []).length ? (p.members ?? []).map((m, i) => `${i === 0 ? '★ ' : ''}@${m.handle}`).join(', ') : t('projectNoMembers')),
+                    ),
+                  ),
+                ),
+        ),
+      );
+    }
+    /**
+     * A project group's page (Bots 0.17.5): its cast on the left, and the conversation with the member
+     * picked on the right. Each member talks here in its own conversation, which reads this project's
+     * memory only — that is the point of the group, so the page says so.
+     */
+    function ProjectGroupView({ t, project, bots, toast, env, onBack }) {
+      const { data, failed, reload } = useJson(`projects/group?id=${encodeURIComponent(project)}`, 15_000);
+      const [withId, setWithId] = useState('');
+      const view = data?.project;
+      const members = Array.isArray(data?.bots) ? data.bots : [];
+      // The first member (the project's lead) is who the page opens on.
+      const member = members.find((m) => m.id === withId) ?? members[0];
+      const cast = Array.isArray(view?.members) ? view.members : [];
+      return h(
+        'div',
+        { 'data-dsh-bots-project-group': project, style: { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 } },
+        h(
+          'header',
+          { style: { padding: '16px 24px 12px', borderBottom: `1px solid ${C.border1}`, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' } },
+          h('button', { type: 'button', className: 'dshb-link', 'data-dsh-bots-project-back': true, onClick: onBack, style: { display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: SMALL } }, Icon.back(12), t('back')),
+          h(
+            'div',
+            { style: { display: 'flex', flexDirection: 'column', gap: 2, flex: 1, minWidth: 200 } },
+            h('span', { style: { fontWeight: 700, fontSize: 18 } }, [view ? `${view.key} · ${view.name}` : t('projectGroup')]),
+            h('span', { style: { fontSize: SMALL, color: C.muted } }, view?.dir || t('projectGroupSub')),
+          ),
+        ),
+        failed
+          ? h('div', { style: { padding: 24, fontSize: SMALL, color: C.faint } }, t('actionFailed'))
+          : members.length === 0
+            ? h('div', { 'data-dsh-bots-project-group-empty': true, style: { padding: '32px 24px', display: 'flex', flexDirection: 'column', gap: 8 } }, h('span', { style: { fontWeight: 600 } }, t('projectGroupEmptyTitle')), h('span', { style: { fontSize: SMALL, color: C.muted } }, t('projectGroupEmptyBody')))
+            : h(
+                'div',
+                { style: { display: 'flex', flex: 1, minHeight: 0 } },
+                // The cast: pick who to talk to here.
+                h(
+                  'div',
+                  { 'data-dsh-bots-project-cast-list': members.length, style: { width: 200, flex: 'none', borderRight: `1px solid ${C.border1}`, padding: '10px 8px', display: 'flex', flexDirection: 'column', gap: 4, overflowY: 'auto' } },
+                  members.map((m) =>
+                    h(
+                      'button',
+                      {
+                        key: m.id,
+                        type: 'button',
+                        className: 'dshb-row',
+                        'data-active': member?.id === m.id,
+                        'data-dsh-bots-project-member-row': m.id,
+                        onClick: () => setWithId(m.id),
+                        style: { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', border: 0, background: 'transparent', cursor: 'pointer', textAlign: 'left', width: '100%' },
+                      },
+                      h('span', { style: { width: 8, height: 8, borderRadius: '50%', background: m.avatar?.color ?? C.muted, flex: 'none' } }),
+                      h('span', { style: { fontSize: SMALL, fontWeight: m.lead ? 700 : 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, [`@${m.handle}`, m.lead ? ` ${t('projectMemberLead')}` : ''].join('')),
+                    ),
+                  ),
+                ),
+                // The conversation with the member picked.
+                h(
+                  'div',
+                  { style: { flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' } },
+                  member ? h('div', { 'data-dsh-bots-project-chat': member.id, style: { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' } }, h(ChatTab, { key: member.id, t, bot: { id: member.id, name: member.name, handle: member.handle, avatar: member.avatar }, env, toast, project, projectKey: view?.key ?? '' })) : null,
+                ),
+              ),
+      );
+    }
     function TeamMemoryView({ t, toast, onSettings }) {
       const { data, reload } = useJson('memory?bot=team', 20_000);
       const [busy, setBusy] = useState(false);
@@ -9034,6 +9139,7 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
       const [settings, setSettings] = useState(false);
       const [ticketId, setTicketId] = useState(null); // the task shown in the Tasks view
       const [needId, setNeedId] = useState(null); // the request shown in the Requests view
+      const [projectId, setProjectId] = useState(null); // the project group open in its own page (Bots 0.17.5)
       const [tasksBot, setTasksBot] = useState(''); // the Tasks view's bot filter when another view asked for it
       const [noticeGone, setNoticeGone] = useState(false);
       const [leadsGone, setLeadsGone] = useState(false);
@@ -9082,6 +9188,10 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
       let main;
       if (!s.state) {
         main = h('div', { style: { flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.faint, fontSize: SMALL } }, s.failed ? t('unavailable') : t('loading'));
+      } else if (shownView === 'project') {
+        main = projectId
+          ? h(ProjectGroupView, { key: projectId, t, project: projectId, bots, env: env2, toast: showToast, onBack: () => setProjectId(null) })
+          : h(ProjectListView, { t, onOpen: setProjectId });
       } else if (shownView === 'needs') {
         const toTask = (id) => {
           setView('tasks');
@@ -9140,6 +9250,12 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
             setNeedId(null);
           },
           needCounts: s.state?.needs ?? {},
+          // The project groups (Bots 0.17.5): talking to a bot inside one of them.
+          onProjects: () => {
+            setView('project');
+            setProjectId(null);
+          },
+          projectsCount: s.state?.projects ?? 0,
         }),
         h(
           'div',
@@ -10296,6 +10412,13 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         projectNoBots: 'Create a bot first: a project is staffed by bots.',
         projectMemberLead: 'lead',
         projectNoMembers: 'No bots yet: this project has no cast',
+        back: 'Back',
+        projectsNavHint: 'Talk to its bots, each in its own conversation',
+        projectGroup: 'Project group',
+        projectGroupSub: 'Each bot works here in a conversation of its own, reading this project\'s memory only.',
+        projectGroupNoProjects: 'No projects yet: make one on the board, then add its bots.',
+        projectGroupEmptyTitle: 'No bots in this project yet',
+        projectGroupEmptyBody: 'Edit the project on the board and add its cast. Each bot then gets a conversation here that reads this project\'s memory only.',
         projectBrief: 'Brief',
         projectBriefHint: 'Every task of the project reads it: goals, conventions, links.',
         projectBriefPlaceholder: 'What this project is, and how work on it is done',
@@ -11394,6 +11517,13 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         projectNoBots: '先建一个 bot：项目是由 bot 组成的。',
         projectMemberLead: '负责',
         projectNoMembers: '还没有 bot：这个项目还没有成员',
+        back: '返回',
+        projectsNavHint: '和项目里的 bot 说话，每个都有自己的会话',
+        projectGroup: '项目组',
+        projectGroupSub: '每个 bot 在这里有自己的会话，只读这个项目的记忆。',
+        projectGroupNoProjects: '还没有项目：先在看板上建一个，再把 bot 加进去。',
+        projectGroupEmptyTitle: '这个项目里还没有 bot',
+        projectGroupEmptyBody: '到看板上编辑这个项目、加上成员。每个成员随后会在这里有一个会话，只读这个项目的记忆。',
         projectBrief: '简介',
         projectBriefHint: '项目的每个任务都会读到：目标、约定、链接。',
         projectBriefPlaceholder: '这个项目是什么，活怎么干',

@@ -2071,7 +2071,8 @@ export function apply(ctx, config, deps = {}) {
       if (went) return went;
     }
     const id = newPanelId();
-    store.log({ id, from: 'user', to: bot.id, chat: bot.id, kind: 'user', text: body, thread: panelThreadKey(sid), sid, ...(card ? { need: card.id } : {}), ...imageIdsOf(refs) });
+    // `project` files the message in that project's chat, so it never shows in the bot's own (Bots 0.17.5).
+    store.log({ id, from: 'user', to: bot.id, chat: bot.id, kind: 'user', text: body, thread: panelThreadKey(sid), sid, ...(project ? { project: String(project) } : {}), ...(card ? { need: card.id } : {}), ...imageIdsOf(refs) });
     // The panel shows thread replies in the chat: what the person read there since, the main conversation hears first.
     const news = threadNewsFor(bot, sid);
     // The router reads which tasks a message may continue, and the person's open requests (Bots 0.11); a card, what it is (0.12).
@@ -3696,7 +3697,9 @@ export function apply(ctx, config, deps = {}) {
     }
     const thread = sent ? sent.threadKey : homeThreadOf(sessionId);
     const topic = isPanelThread(thread) ? panelTopicOf(thread) : '';
-    const logged = store.log({ from: bot.id, to: 'user', chat: bot.id, text, kind: 'reply', error: detail, ...(sent && sent.kind !== 'panel' ? { via: sent.kind } : {}), ...(thread ? { thread } : {}), ...(topic ? { topic } : {}) });
+    // A reply in a project conversation stays in that project's chat (Bots 0.17.5).
+    const inProject = projectOfSession(sessionId);
+    const logged = store.log({ from: bot.id, to: 'user', chat: bot.id, text, kind: 'reply', error: detail, ...(inProject ? { project: inProject.id } : {}), ...(sent && sent.kind !== 'panel' ? { via: sent.kind } : {}), ...(thread ? { thread } : {}), ...(topic ? { topic } : {}) });
     if (bot.sessionId === sessionId) discussions.anchor(messageRef(logged.id), { sessionId, seq: event.seq });
   }
   /** A tool call's arguments as an object (`argsRaw` or Harness's `arguments`, a JSON string). */
@@ -5828,6 +5831,8 @@ export function apply(ctx, config, deps = {}) {
       rotatedAt,
       limits: { skills: MAX_SKILLS, skillsOn: MAX_SKILLS_ON },
       teamNotes: memory.notes('team').length,
+      // The project groups (Bots 0.17.5), for the rail's entry.
+      projects: projects.list().length,
       dispatcher: s.dispatcher,
       // The dispatcher has a teammate to hand work to: it routes now.
       routerActive: routerActive(),
@@ -6517,8 +6522,42 @@ export function apply(ctx, config, deps = {}) {
       post: async (body) => {
         const bot = store.get(String(body.to ?? ''));
         if (!bot) return { ok: false, reason: 'no such bot' };
-        const sent = await userSend(bot, body.text, { replyTo: String(body.replyTo ?? ''), images: imageRefs(body.images) });
+        // `project` (Bots 0.17.5): talk to it inside that project group, in its conversation there.
+        const sent = await userSend(bot, body.text, { replyTo: String(body.replyTo ?? ''), images: imageRefs(body.images), project: String(body.project ?? '') });
         return { ok: true, sessionId: sent.sessionId, ...(sent.message ? { message: sent.message } : {}) };
+      },
+    },
+    /**
+     * A project group's page (Bots 0.17.5): its cast, each member's conversation there, and whether that
+     * conversation has been opened yet. Opening one is `projects/session`, which makes it on first need.
+     */
+    'projects/group': {
+      get: (url) => {
+        const p = projects.get(String(url.searchParams.get('id') ?? ''));
+        if (!p) return { ok: false, reason: 'no such project' };
+        const members = memberView(p);
+        return {
+          ok: true,
+          project: projectView(p),
+          bots: members.map((m) => ({
+            ...m,
+            // The conversation exists once someone has talked to it; `started: false` means first message makes it.
+            started: Boolean(m.sessionId),
+          })),
+        };
+      },
+    },
+    /** Open (or find) `bot`'s conversation inside `project`: what the project page does before it talks there. */
+    'projects/session': {
+      post: async (body) => {
+        const p = projects.get(String(body.id ?? ''));
+        if (!p) return { ok: false, reason: 'no such project' };
+        const bot = store.get(String(body.bot ?? ''));
+        if (!bot) return { ok: false, reason: 'no such bot' };
+        const made = await ensureProjectSessions(bot, [p.id]);
+        const found = made.find((x) => x.project.id === p.id);
+        if (!found) return { ok: false, reason: `could not open @${bot.handle}'s conversation in ${p.key}` };
+        return { ok: true, sessionId: found.sessionId, bot: { id: bot.id, name: bot.name, handle: bot.handle, avatar: bot.avatar } };
       },
     },
     // An image the person attached in the panel (Bots 0.17), stored before the message that carries it is sent.
@@ -6687,14 +6726,16 @@ export function apply(ctx, config, deps = {}) {
   function messagesView(url) {
     const bot = url.searchParams.get('bot') ?? '';
     const topic = url.searchParams.get('topic') ?? '';
+    // A project group's page asks for that project's chat only (Bots 0.17.5).
+    const project = url.searchParams.get('project') ?? '';
     const limit = Number(url.searchParams.get('limit')) || (topic ? 500 : 200);
     if (topic) {
-      const items = store.messages({ bot, limit, topic }).map(messageView);
-      const replies = store.replies(bot, [topic]);
+      const items = store.messages({ bot, limit, topic, project }).map(messageView);
+      const replies = store.replies(bot, [topic], { project });
       const sum = threadSummary(topic, replies.get(topic) ?? [], items.find((m) => m.id === topic) ?? store.message(topic));
       return { items, threads: sum ? { [topic]: sum } : {} };
     }
-    const rows = store.messages({ bot, limit, roots: false });
+    const rows = store.messages({ bot, limit, roots: false, project });
     const byId = new Map(rows.map((m) => [m.id, m]));
     const roots = new Set(rows.map(rootIdOf).filter(Boolean));
     const replies = store.replies(bot, roots);

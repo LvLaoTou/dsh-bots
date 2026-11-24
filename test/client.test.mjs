@@ -1156,7 +1156,8 @@ test('0.16.1: the rail\'s views are one-line tiles, two to a line, with their wo
     const nav = findAll(v.tree, (n) => n.props['data-dsh-bots-nav'])[0];
     assert.equal(nav.props.style.gridTemplateColumns, 'repeat(2, minmax(0, 1fr))');
     const tiles = findAll(nav, (n) => n.type === 'button');
-    assert.deepEqual(tiles.map((n) => collect(n).join(' ').split(' ')[0]), ['Requests', 'Tasks', 'Activity', 'Usage', 'Memory', 'Hire']);
+    // Projects sits with the other views (Bots 0.17.5: a project group is where you talk to its bots).
+    assert.deepEqual(tiles.map((n) => collect(n).join(' ').split(' ')[0]), ['Requests', 'Tasks', 'Projects', 'Activity', 'Usage', 'Memory', 'Hire']);
     // Under way, not waiting for you: a plain count, no red badge.
     const requests = tiles[0];
     assert.equal(findAll(requests, (n) => n.props['data-dsh-bots-needs-badge'] !== undefined).length, 0);

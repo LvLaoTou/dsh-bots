@@ -15,6 +15,9 @@ version is out ([Updates](README.md#updates)).
   added leads it.
 - Deleting a bot or a project archives those conversations; taking a bot off a project ends its conversation there and
   leaves the notes for whoever takes the work over.
+- **A project has a page of its own**: **Projects** in the rail lists them, and opening one shows its cast (★ on the
+  lead) beside the conversation with the member picked. Those messages stay in the project and never show in the bot's
+  own conversation.
 - `bot_list` shows which projects each bot staffs; `bot_create` and `bot_update` take `project` (join, or `!KEY` to
   leave) and `projects` (the whole list).
 - The panel's project list shows the cast, with ★ on the lead.

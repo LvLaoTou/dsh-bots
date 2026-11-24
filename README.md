@@ -203,6 +203,7 @@ Android app — and what each project said and decided stays apart.
 - **Memory by project**: in a project conversation, `memory_save` with `scope: "project"` files the note under that
   project without naming it. The bot's own notes (`self`) and the shared ones (`team`) follow it into every project, so
   **what concerns one project must not go there**, or another project reads it.
+- **A project has a page of its own**: **Projects** in the rail lists them, and opening one shows its cast beside the conversation with the member picked. Those messages stay in the project.
 - **The first bot added leads it**, by the same rule a team's lead follows.
 - **Deleting a bot or a project** archives those conversations; taking a bot off a project ends its conversation there
   and leaves the notes for whoever takes the work over.
