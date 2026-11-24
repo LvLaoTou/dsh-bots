@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
     const NS = 'bots';
     const PANEL_ID = 'bots';
     /** The Bots this page is (package.json): the Host says which one it runs, and a stale Host is pointed out. */
-    const BOTS_VERSION = '0.17.4';
+    const BOTS_VERSION = '0.18.0';
     /** How close to a new topic Harness closing the panel counts as caused by it (it archived the conversation behind). */
     const ROTATE_WINDOW_MS = 3000;
     const R = '/__dsh_bots/';
@@ -3874,18 +3874,23 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
       );
     }
     /** The projects cards are filed under (Bots 0.12): list, add, change and remove them. */
-    function ProjectsModal({ t, projects, env, toast, onClose, onChanged }) {
+    function ProjectsModal({ t, projects, env, toast, onClose, onChanged, bots = [] }) {
       const [editing, setEditing] = useState(null);
       const [form, setForm] = useState({ name: '', key: '', dir: '', repo: '', brief: '' });
+      // The cast is edited apart from the form: it is sent only when it actually changed (Bots 0.17.5).
+      const [cast, setCast] = useState([]);
       const [error, setError] = useState('');
       const [busy, setBusy] = useState(false);
       const [removing, setRemoving] = useState(null);
       const edit = (p) => {
         setEditing(p ?? {});
         setForm({ name: p?.name ?? '', key: p?.key ?? '', dir: p?.dir ?? '', repo: p?.repo ?? '', brief: p?.brief ?? '' });
+        setCast((p?.members ?? []).map((m) => m.id));
         setError('');
       };
       const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+      /** A bot joins or leaves the cast (Bots 0.17.5); the first one added leads the project. */
+      const toggleMember = (id) => setCast((list) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]));
       // The Host's folder dialog (Bots 0.16), as in adding skills from a folder; typing the path still works.
       const canPick = typeof env?.pickDirectory === 'function' && env.canPickDirectory?.() !== false;
       const pickDir = () => {
@@ -3902,7 +3907,10 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
       const save = () => {
         if (busy || !form.name.trim()) return;
         setBusy(true);
-        void postJson('projects/save', { project: { ...(editing?.id ? { id: editing.id } : {}), ...form } })
+        // The cast is sent only when it changed: a project saved without one keeps whatever it had (Bots 0.17.5).
+        const payload = { ...(editing?.id ? { id: editing.id } : {}), ...form };
+        if ((editing?.members ?? []).map((m) => m.id).join(',') !== cast.join(',')) payload.members = cast;
+        void postJson('projects/save', { project: payload })
           .then((r) => {
             if (r && r.ok !== false) {
               toast(t('projectSaved'));
@@ -3942,6 +3950,35 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
             ),
             h(Field, { label: t('projectRepo'), hint: t('projectRepoHint') }, h(Input, { value: form.repo, mono: true, placeholder: t('projectRepoPlaceholder'), 'data-dsh-bots-project-repo': true, onChange: set('repo') })),
             h(Field, { label: t('projectBrief'), hint: t('projectBriefHint') }, h(TextArea, { value: form.brief, rows: 6, maxLength: 4000, placeholder: t('projectBriefPlaceholder'), 'data-dsh-bots-project-brief': true, onChange: set('brief') })),
+            // The project's cast (Bots 0.17.5): a bot works in a project with a conversation of its own
+            // there, and reads that project's memory only. The first bot picked leads the project.
+            h(
+              Field,
+              { label: t('projectMembers'), hint: t('projectMembersHint') },
+              bots.length === 0
+                ? h('div', { style: { fontSize: SMALL, color: C.faint } }, t('projectNoBots'))
+                : h(
+                    'div',
+                    { 'data-dsh-bots-project-members': cast.length, style: { display: 'flex', flexWrap: 'wrap', gap: 8 } },
+                    bots.map((b) =>
+                      h(
+                        'button',
+                        {
+                          key: b.id,
+                          type: 'button',
+                          'data-dsh-bots-project-member': b.id,
+                          'aria-pressed': cast.includes(b.id) ? 'true' : 'false',
+                          'data-active': cast.includes(b.id),
+                          className: 'dshb-chip',
+                          onClick: () => toggleMember(b.id),
+                          style: { display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' },
+                        },
+                        h('span', null, `@${b.handle}`),
+                        cast[0] === b.id ? h('span', { style: { fontSize: TINY, opacity: 0.7 } }, t('projectMemberLead')) : null,
+                      ),
+                    ),
+                  ),
+            ),
             error ? h('div', { 'data-dsh-bots-project-error': true, style: { fontSize: SMALL, color: C.error } }, error) : null,
           )
         : h(
@@ -3960,6 +3997,14 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
                       { style: { flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 } },
                       h('span', { style: { fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, p.name),
                       h('span', { className: p.dir ? 'dshb-mono' : '', style: { fontSize: TINY, color: C.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, [p.dir || t('projectNoDir'), p.repo ? `GitHub ${p.repo}` : ''].filter(Boolean).join(' · ')),
+                      // The cast, with the lead first (Bots 0.17.5).
+                      h(
+                        'span',
+                        { 'data-dsh-bots-project-cast': (p.members ?? []).length, style: { fontSize: TINY, color: (p.members ?? []).length ? C.muted : C.faint } },
+                        (p.members ?? []).length
+                          ? (p.members ?? []).map((m, i) => `${i === 0 ? '★ ' : ''}@${m.handle}`).join(', ')
+                          : t('projectNoMembers'),
+                      ),
                     ),
                     h(Btn, { size: 'sm', icon: Icon.edit(12), onClick: () => edit(p), 'data-dsh-bots-project-edit': p.id }, t('edit')),
                     h(Btn, { size: 'sm', kind: 'ghost', icon: Icon.trash(12), title: t('projectRemove'), onClick: () => setRemoving(p), 'data-dsh-bots-project-remove': p.id }),
@@ -4109,7 +4154,7 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         ),
         h('div', { className: 'dshb-scroll', style: { flex: 1, padding: '16px 24px 28px' } }, body),
         creating ? h(CardForm, { t, bots, primaryId, projects, project: filter, cards: all.filter((r) => r.status !== 'done'), toast, onClose: () => setCreating(false), onCreated: () => (void reload(), void refreshState()) }) : null,
-        managing ? h(ProjectsModal, { t, projects, env, toast, onClose: () => setManaging(false), onChanged: () => (void reloadProjects(), void reload()) }) : null,
+        managing ? h(ProjectsModal, { t, projects, env, toast, bots, onClose: () => setManaging(false), onChanged: () => (void reloadProjects(), void reload()) }) : null,
         confirm
           ? h(Confirm, {
               t,
@@ -10235,7 +10280,7 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         afterThenDispatcher: 'Then to {name} (the dispatcher)',
         afterThenBot: 'Then to {name}',
         projects: 'Projects',
-        projectsIntro: 'File cards under a project to number them (OPC-12), and to give their tasks a folder to work in and a brief to read.',
+        projectsIntro: 'A project is a standing cast for one piece of work: add its bots, and each of them works here in a conversation of its own, reading this project\'s memory only. File cards under it to number them (OPC-12).',
         projectsEmpty: 'No projects yet.',
         projectNew: 'New project',
         projectEditTitle: 'Edit {key}',
@@ -10246,6 +10291,11 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         projectDir: 'Folder',
         projectDirHint: 'Its tasks work in this folder (Harness adds it as a workspace). Leave it empty for the Bots workspace.',
         projectNoDir: 'No folder: its tasks work in the Bots workspace',
+        projectMembers: 'The cast',
+        projectMembersHint: 'The bots that work on this project. Each gets a conversation here that reads this project\'s memory only, so the same bot keeps two projects apart. The first one picked leads it.',
+        projectNoBots: 'Create a bot first: a project is staffed by bots.',
+        projectMemberLead: 'lead',
+        projectNoMembers: 'No bots yet: this project has no cast',
         projectBrief: 'Brief',
         projectBriefHint: 'Every task of the project reads it: goals, conventions, links.',
         projectBriefPlaceholder: 'What this project is, and how work on it is done',
@@ -11328,7 +11378,7 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         afterThenDispatcher: '然后交给 {name}（调度者）',
         afterThenBot: '然后交给 {name}',
         projects: '项目',
-        projectsIntro: '把卡片归到项目下，卡片就按项目编号（如 OPC-12），它的任务也会在项目目录里工作，并读到项目简介。',
+        projectsIntro: '项目是为一件事常设的一组 bot：把 bot 加进来，每个都在这个项目里有自己的会话，只读这个项目的记忆。卡片归到项目下就按项目编号（如 OPC-12）。',
         projectsEmpty: '还没有项目。',
         projectNew: '新建项目',
         projectEditTitle: '编辑 {key}',
@@ -11339,6 +11389,11 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         projectDir: '目录',
         projectDirHint: '项目的任务在这个目录里工作（Harness 会把它加为工作区）。留空则用 Bots 工作区。',
         projectNoDir: '没有目录：任务在 Bots 工作区里工作',
+        projectMembers: '项目成员',
+        projectMembersHint: '在这个项目里干活的 bot。每个在这里有一个自己的会话，只读这个项目的记忆，所以同一个 bot 不会把两个项目混在一起。第一个选的负责这个项目。',
+        projectNoBots: '先建一个 bot：项目是由 bot 组成的。',
+        projectMemberLead: '负责',
+        projectNoMembers: '还没有 bot：这个项目还没有成员',
         projectBrief: '简介',
         projectBriefHint: '项目的每个任务都会读到：目标、约定、链接。',
         projectBriefPlaceholder: '这个项目是什么，活怎么干',

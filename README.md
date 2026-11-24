@@ -193,6 +193,22 @@ up), and several messages (you ask, then add "include the UK in the Europe one",
   it answered a card itself, without a task, it marks it done.
 - Only what you ask for is a request: work teammates ask each other for, and work a schedule starts, is not.
 
+### Project groups: a standing cast, and a memory of its own
+
+A project is more than where cards are numbered: it is a **standing cast**. Put bots on it (the project form's
+**The cast**, or `bot_update`'s `projects`) and each of them gets a conversation of its own inside that project, reading
+that project's memory only. The same person can staff several — one architect works on both the mini-app and the
+Android app — and what each project said and decided stays apart.
+
+- **Memory by project**: in a project conversation, `memory_save` with `scope: "project"` files the note under that
+  project without naming it. The bot's own notes (`self`) and the shared ones (`team`) follow it into every project, so
+  **what concerns one project must not go there**, or another project reads it.
+- **The first bot added leads it**, by the same rule a team's lead follows.
+- **Deleting a bot or a project** archives those conversations; taking a bot off a project ends its conversation there
+  and leaves the notes for whoever takes the work over.
+- Work a bot does inside a project still opens a **task** (next section), filed under that project: it reads the
+  project's folder and brief.
+
 ## Tasks: delegated work in conversations of their own
 
 When a bot hands work to a teammate, the work becomes a **task**. The teammate works on each task in a conversation

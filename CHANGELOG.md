@@ -5,6 +5,22 @@ English | [简体中文](CHANGELOG.zh-CN.md)
 What changed in each version of Bots, newest first, and what to do after upgrading. Bots tells you when a new
 version is out ([Updates](README.md#updates)).
 
+## 0.18.0 — 2026-11-24
+
+- **Project groups: a project is a standing cast, with a memory of its own.** A project used to decide only card numbers
+  and a task folder; people belonged to teams, so one architect working on both the mini-app and the Android app had
+  everything they noted read on both. A project now has members (the project form's **The cast**, or `bot_update`'s
+  `projects` / `project`), and each member gets a **conversation of its own inside that project** that reads that
+  project's memory only: `memory_save` with `scope: "project"` lands there without naming the project. The first member
+  added leads it.
+- Deleting a bot or a project archives those conversations; taking a bot off a project ends its conversation there and
+  leaves the notes for whoever takes the work over.
+- `bot_list` shows which projects each bot staffs; `bot_create` and `bot_update` take `project` (join, or `!KEY` to
+  leave) and `projects` (the whole list).
+- The panel's project list shows the cast, with ★ on the lead.
+- **Nothing to migrate**: a project written before this has no members, which reads as an empty cast, and
+  `project-sessions.json` is made on first use.
+
 ## 0.17.4 — 2026-11-24
 
 - **A chat no longer hears about other tasks.** When one task finished in its own chat and another failed in a Feishu

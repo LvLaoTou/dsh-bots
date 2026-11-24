@@ -53,7 +53,8 @@ import { createPriceCatalog, priceOf } from './lib/prices.mjs';
 import { createLedger, promptTokens, report, ticketUsage, todayByBot, usageRow } from './lib/usage.mjs';
 import { createSlots, createTickets, parkedOf, REPORT_STATUSES, sessionIdOf, stageOf } from './lib/tickets.mjs';
 import { clampNeedTitle, createNeeds, MAX_AFTER, MAX_DESCRIPTION, NEED_ID_RE, needStatus } from './lib/needs.mjs';
-import { CARD_REF_RE, createProjects, PROJECT_ID_RE } from './lib/projects.mjs';
+import { CARD_REF_RE, createProjects, MAX_MEMBERS, PROJECT_ID_RE } from './lib/projects.mjs';
+import { createProjectSessions } from './lib/project-sessions.mjs';
 import { assignmentText, clip, discussionNoteText, failedNoticeText, followUpNoticeText, NEWS_MESSAGES, nudgeText, panelHeaderText, PREVIEW_CHARS, readResource, recoveryNoteText, reminderText, reportRelayText, retryText, shownNoticeText, stalledNoticeText, threadNewsText } from './lib/cards.mjs';
 import { checkTickets, isEmptyResponse, isTransient, requesterReminders, retryDelay } from './lib/watchdog.mjs';
 import { isLiveSubscriber, isPanelThread, isTopicThread, panelThreadKey, panelTopicOf, parseThreadKey, threadLabel, toThreadKey } from './lib/threads.mjs';
@@ -263,7 +264,11 @@ export function apply(ctx, config, deps = {}) {
   const magpieAt = { home, env: deps.env ?? process.env };
   const workdir = typeof cfg.workdir === 'string' && cfg.workdir.trim() ? cfg.workdir.trim() : join(homeDir(), 'bots', 'workspace');
   // What work belongs to (Bots 0.12): a request filed under a project is numbered there, and its tasks work in its folder.
-  const projects = createProjects(dir, { now: nowMs, home });
+  // A project is also a standing cast (Bots 0.17.5): its `members` staff it. `validBot` drops a deleted bot from it.
+  const projects = createProjects(dir, { now: nowMs, home, validBot: (id) => Boolean(store.get(String(id))) });
+  // One conversation per (bot, project) pair (Bots 0.17.5): the same bot keeps the mini-app and the
+  // Android app apart, each with its own project memory.
+  const projectSessions = createProjectSessions(dir, { now: nowMs });
   const zone = (() => {
     try {
       return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
@@ -330,6 +335,19 @@ export function apply(ctx, config, deps = {}) {
   }
   const activity = createActivity({ now: nowMs, secrets: channelSecrets, handleOf: (ref) => (store.find(String(ref)) ? `@${store.find(String(ref)).handle}` : '') });
 
+  /**
+   * The project a conversation works in, or undefined (Bots 0.17.5): a bot's conversation *inside* a
+   * project group carries that project. A ticket's project is its own field; a project conversation's
+   * is whichever pair says it is that Session.
+   */
+  function projectOfSession(sessionId) {
+    if (!sessionId) return undefined;
+    const t = ticketOf(sessionId);
+    if (t) return t.projectId ? projects.get(t.projectId) : undefined;
+    const pair = projectSessions.bySession(sessionId);
+    return pair ? projects.get(pair.projectId) : undefined;
+  }
+
   /** The bot of a home Session, of a discussion (forked from its conversation), or of a ticket Session (its executing bot). */
   function botOfSession(sessionId) {
     if (!sessionId) return undefined;
@@ -338,7 +356,10 @@ export function apply(ctx, config, deps = {}) {
     const d = discussions.bySession(sessionId);
     if (d) return store.get(d.botId);
     const t = ticketOf(sessionId);
-    return t ? store.get(t.botId) : undefined;
+    if (t) return store.get(t.botId);
+    // A bot's conversation inside a project group (Bots 0.17.5).
+    const pair = projectSessions.bySession(sessionId);
+    return pair ? store.get(pair.botId) : undefined;
   }
   /** Whether `sessionId` is `bot`'s home, or a discussion forked from its conversation (it talks to the person like the home). */
   const isHomeOf = (bot, sessionId) => Boolean(bot && sessionId) && (bot.sessionId === sessionId || discussions.bySession(sessionId)?.botId === bot.id);
@@ -519,8 +540,10 @@ export function apply(ctx, config, deps = {}) {
               const now = store.get(bot.id);
               const roster = store.list();
               const ticket = ticketId ? tickets.get(ticketId) : undefined;
+              // A conversation inside a project group reads as that project's place (Bots 0.17.5).
+              const group = ticket ? undefined : projectGroupFor(agent.session.id);
               return now
-                ? personaText(now, roster, { skillsInline, skillNames, apps: appNames, channels: channelNames(roster), dispatcher: routerActive() ? 'router' : 'hands-on', tickets: true, teamNames: teamNamesForPrompt(), ...projectsForPersona(ticket), ...(ticket ? { ticket } : {}) })
+                ? personaText(now, roster, { skillsInline, skillNames, apps: appNames, channels: channelNames(roster), dispatcher: routerActive() ? 'router' : 'hands-on', tickets: true, teamNames: teamNamesForPrompt(), ...projectsForPersona(ticket), ...(ticket ? { ticket } : {}), ...(group ? { projectGroup: group } : {}) })
                 : '';
             },
           }),
@@ -625,6 +648,24 @@ export function apply(ctx, config, deps = {}) {
     }
   }
 
+  /**
+   * The project a conversation is the home of, with its cast, as `personaText` reads it (Bots 0.17.5),
+   * or undefined when it is not a project conversation.
+   */
+  function projectGroupFor(sessionId) {
+    try {
+      const pair = projectSessions.bySession(sessionId);
+      if (!pair) return undefined;
+      const p = projects.get(pair.projectId);
+      if (!p) return undefined;
+      const members = p.members.map((id) => store.get(id)).filter(Boolean);
+      return { key: p.key, name: p.name, brief: p.brief, dir: p.dir, lead: members[0], members };
+    } catch (error) {
+      ctx.logger?.warn?.(`bots: project group: ${error?.message ?? error}`);
+      return undefined;
+    }
+  }
+
   // --- sessions ---------------------------------------------------------------------
   function isDirectory(path) {
     try {
@@ -720,6 +761,135 @@ export function apply(ctx, config, deps = {}) {
     return found.agent;
   }
 
+  // --- project conversations (Bots 0.17.5) ---------------------------------------------
+  /** Whether `bot` staffs `project` (it is on its members). */
+  const isMember = (bot, project) => Boolean(bot && project) && project.members.includes(bot.id);
+
+  /**
+   * The conversations a bot has inside project groups, made on first need. Each pair works in the
+   * project's folder and reads that project's notes only, so the same bot keeps the mini-app and the
+   * Android app apart. Returns `{project, sessionId, agent}` for the projects asked.
+   * @param {object} bot
+   * @param {string[]} [only] - project ids; every project the bot staffs when left out
+   */
+  async function ensureProjectSessions(bot, only) {
+    const controller = service(ctx, 'sessionController');
+    if (!controller) throw new Error('bot conversations need the Web profile (no session controller here)');
+    const archived = service(ctx, 'workspaceRegistry')?.archivedSessionIds ?? [];
+    const wanted = projects.ofBot(bot.id).filter((p) => !only || only.includes(p.id));
+    const out = [];
+    for (const project of wanted) {
+      const known = projectSessions.get(bot.id, project.id);
+      if (known && !archived.includes(known)) {
+        const found = await controller.resolveAgent(known).catch((error) => ({ error }));
+        if (found && !('error' in found)) {
+          out.push({ project, sessionId: known, agent: found.agent });
+          continue;
+        }
+      }
+      const made = await createProjectSession(bot, project).catch((error) => {
+        ctx.logger?.warn?.(`bots: project conversation ${project.key} for @${bot.handle}: ${error?.message ?? error}`);
+        return null;
+      });
+      if (made) out.push({ project, ...made });
+    }
+    return out;
+  }
+
+  /**
+   * A fresh conversation for `bot` inside `project`. Mapped before the Agent exists, so its creation
+   * already knows which project it is in (the persona and the memory read it).
+   */
+  async function createProjectSession(bot, project) {
+    const controller = service(ctx, 'sessionController');
+    if (!controller) throw new Error('bot conversations need the Web profile (no session controller here)');
+    const sessionId = `session-${randomUUID()}`;
+    projectSessions.set(bot.id, project.id, sessionId);
+    try {
+      const added = projects.addMember(project.id, bot.id);
+      const place = await projectPlace(project);
+      const created = await controller.create({ sessionId, ...place });
+      const id = created?.sessionId ?? sessionId;
+      if (id !== sessionId) projectSessions.set(bot.id, project.id, id);
+      const agent = agents()?.get?.(id);
+      if (agent) {
+        reconcile(agent);
+        try {
+          service(ctx, 'sessionTitle')?.rename?.(agent.session, `${bot.name} · ${added.key}`);
+        } catch {
+          // A title is cosmetic.
+        }
+      }
+      return { sessionId: id, agent };
+    } catch (error) {
+      projectSessions.remove(bot.id, project.id);
+      throw error;
+    }
+  }
+
+  /** Where a project conversation works: the project's folder, as its tickets do. */
+  async function projectPlace(project) {
+    if (project?.dir) {
+      if (!isDirectory(project.dir)) throw new Error(`the folder of project ${project.key}, ${project.dir}, is gone; set another one on the board`);
+      const reg = service(ctx, 'workspaceRegistry');
+      const ws = reg?.create ? await reg.create(project.dir, project.name).catch(() => undefined) : undefined;
+      return ws?.id ? { workspaceId: ws.id } : { cwd: project.dir };
+    }
+    return botPlace(undefined);
+  }
+
+  /** A project by id or key, or a readable error: what `userSend` and the panel ask for. */
+  function projectByRefOrThrow(ref) {
+    const p = projects.get(String(ref ?? ''));
+    if (!p) throw new Error(`no such project: ${String(ref ?? '')}`);
+    return p;
+  }
+
+  /**
+   * A fresh conversation for `bot` inside `project`, replacing the old one (Bots 0.17.5): `/new` in a
+   * project, or a topic that went quiet or grew too big. Unlike a bot's own topic there is no scheduled
+   * task to move along — a project conversation has none — and the old Session is archived.
+   */
+  const rotatingProject = new Map();
+  async function newProjectTopic(bot, project, reason = 'manual') {
+    const key = `${bot.id}|${project.id}`;
+    if (rotatingProject.has(key)) return rotatingProject.get(key);
+    const job = (async () => {
+      const prev = projectSessions.get(bot.id, project.id);
+      const agent = prev ? agents()?.get?.(prev) : undefined;
+      if (agent?.status === 'running') throw new Error(`${bot.name} is still working on ${project.key}; start a new topic when it is done`);
+      const open = prev ? openTasks.get(prev) : undefined;
+      if (open) finishTask(open);
+      const made = await createProjectSession(bot, project);
+      if (prev && prev !== made.sessionId) {
+        uninstall(prev);
+        forgetSession(prev);
+        try {
+          await service(ctx, 'workspaceRegistry')?.archiveSession?.(prev);
+        } catch (error) {
+          ctx.logger?.warn?.(`bots: archiving the last topic of @${bot.handle} in ${project.key}: ${error?.message ?? error}`);
+        }
+      }
+      rotatedAt = nowMs();
+      return made.sessionId;
+    })().finally(() => rotatingProject.delete(key));
+    rotatingProject.set(key, job);
+    return job;
+  }
+
+  /**
+   * The agent of `bot`'s conversation inside `project` (Bots 0.17.5), made on first need. A bot that
+   * does not staff the project joins it: talking to it there is asking it to work on it.
+   */
+  async function projectAgentOf(bot, project) {
+    const p = projectByRefOrThrow(project);
+    if (!p.members.includes(bot.id)) projects.addMember(p.id, bot.id);
+    const made = await ensureProjectSessions(bot, [p.id]);
+    const found = made.find((x) => x.project.id === p.id);
+    if (!found) throw new Error(`could not open @${bot.handle}'s conversation in project ${p.key}`);
+    return found.agent;
+  }
+
   async function flush(agent) {
     try {
       await ctx.get('sessions')?.flush?.(agent.session);
@@ -807,9 +977,10 @@ export function apply(ctx, config, deps = {}) {
     if (text === undefined) {
       const bot = botOfSession(sessionId);
       try {
-        // A task filed under a project reads that project's notes too (Bots 0.16).
-        const t = ticketOf(sessionId);
-        const p = t?.projectId ? projects.get(t.projectId) : undefined;
+        // A task filed under a project reads that project's notes too (Bots 0.16), and so does a bot's
+        // conversation inside a project group (Bots 0.17.5): that is what keeps the mini-app's notes
+        // out of the Android app's work.
+        const p = projectOfSession(sessionId);
         text = bot ? memory.promptFor(bot, { tz: tzMinutes(), ...(p ? { project: { id: p.id, key: p.key, name: p.name } } : {}) }) : '';
       } catch {
         text = '';
@@ -861,7 +1032,8 @@ export function apply(ctx, config, deps = {}) {
     };
     openTasks.set(sessionId, task);
     // A ticket Session or a discussion is no topic of the bot's: rotation only ever looks at its home.
-    if (!ticket && !discussions.bySession(sessionId)) topics.current(bot.id, sessionId);
+    // A project conversation is its own topic (Bots 0.17.5), keyed by the pair.
+    if (!ticket && !discussions.bySession(sessionId)) topics.current(topicRecordKey(bot.id, projectOfSession(sessionId)), sessionId);
     return task;
   }
   function logLine(task, line) {
@@ -877,7 +1049,7 @@ export function apply(ctx, config, deps = {}) {
     const task = openTasks.get(sessionId);
     const ticketId = ticketOf(sessionId)?.id;
     ledger.record(usageRow({ at, botId: bot.id, sessionId, taskId: kind === 'chat' || kind === 'compaction' ? task?.id : undefined, ticketId, kind, provider, model, usage }));
-    if (kind === 'chat' && !ticketId && !discussions.bySession(sessionId)) topics.noteCall(bot.id, sessionId, promptTokens(usage));
+    if (kind === 'chat' && !ticketId && !discussions.bySession(sessionId)) topics.noteCall(topicRecordKey(bot.id, projectOfSession(sessionId)), sessionId, promptTokens(usage));
   }
   /** The task of `sessionId` is over when its Agent is idle again. */
   function settleSoon(sessionId, delay = 1200) {
@@ -906,7 +1078,7 @@ export function apply(ctx, config, deps = {}) {
       if (t?.ended) reflectTicket(t);
       return;
     }
-    if (!discussions.bySession(task.s)) topics.noteTask(task.b, task.s, task.title);
+    if (!discussions.bySession(task.s)) topics.noteTask(topicRecordKey(task.b, projectOfSession(task.s)), task.s, task.title);
     if (bot) queueReflection(bot, { ...row, log });
   }
   /** ticketId → transcript lines of its finished runs, for the summary written when it ends. */
@@ -1097,7 +1269,13 @@ export function apply(ctx, config, deps = {}) {
    * Start `bot`'s next topic: a fresh conversation (the old one is archived, its
    * scheduled tasks move to the new one). Refused while the bot is working.
    */
-  function newTopic(ref, reason = 'manual') {
+  function newTopic(ref, reason = 'manual', project = '') {
+    // Inside a project group, the new topic is that project's conversation (Bots 0.17.5).
+    if (project) {
+      const bot = store.get(ref.id) ?? ref;
+      const p = projectByRefOrThrow(project);
+      return newProjectTopic(bot, p, reason);
+    }
     const bot = store.get(ref.id) ?? ref;
     if (rotating.has(bot.id)) return rotating.get(bot.id);
     const job = (async () => {
@@ -1167,25 +1345,37 @@ export function apply(ctx, config, deps = {}) {
     return job;
   }
   /** Start a new topic first when the conversation has gone quiet for long or grown too big. */
-  async function autoTopic(bot, trigger) {
+  async function autoTopic(bot, trigger, project = '') {
     // A topic starting right now: wait for it, so this message goes to the new conversation.
     if (bot?.id && rotating.has(bot.id)) {
       await rotating.get(bot.id).catch(() => {});
       return;
     }
-    if (!bot?.sessionId || openTasks.has(bot.sessionId)) return;
-    const agent = agents()?.get?.(bot.sessionId);
+    // A project conversation has its own topic record, keyed by the pair (Bots 0.17.5).
+    const p = project ? projectByRefOrThrow(project) : null;
+    const sid = p ? projectSessions.get(bot.id, p.id) : bot?.sessionId;
+    if (bot?.id && p && rotatingProject.has(`${bot.id}|${p.id}`)) {
+      await rotatingProject.get(`${bot.id}|${p.id}`).catch(() => {});
+      return;
+    }
+    if (!sid || openTasks.has(sid)) return;
+    const agent = agents()?.get?.(sid);
     if (agent?.status === 'running') return;
-    const current = topics.peek(bot.id);
-    if (!current || current.sessionId !== bot.sessionId) return;
+    const current = topics.peek(topicRecordKey(bot.id, p));
+    if (!current || current.sessionId !== sid) return;
     const reason = rotationReason(current, settings.get().topics, { trigger });
     if (!reason) return;
     try {
-      await newTopic(bot, reason);
+      await newTopic(bot, reason, p?.id ?? '');
     } catch (error) {
       ctx.logger?.warn?.(`bots: new topic for @${bot.handle}: ${error?.message ?? error}`);
     }
   }
+  /**
+   * A topic record's key: the bot's id in its own conversation, `bot|project` inside a project group
+   * (Bots 0.17.5). Each project is its own topic, so one going quiet never cuts another's.
+   */
+  const topicRecordKey = (botId, project) => (project ? `${botId}|${project.id}` : botId);
   const TOPIC_COMMAND = /^\/(new|clear|reset|新话题|新对话)(?=$|\s)\s*/i;
 
   // --- delivering messages ---------------------------------------------------------------
@@ -1853,7 +2043,12 @@ export function apply(ctx, config, deps = {}) {
    * header; other homes take it as a turn of its own). With `replyTo` it is a reply in the thread
    * of that message (Bots 0.10, `threadSend`). Returns `{sessionId, message?}`.
    */
-  async function userSend(target, text, { replyTo = '', card = null, cardAfter = [], images: refs = [] } = {}) {
+  /**
+   * A message to a bot, from the panel or a chat app.
+   * `project` (Bots 0.17.5, a project id or key): talk to the bot *inside* that project — its
+   * conversation there, which reads that project's memory only. Left out, its own conversation.
+   */
+  async function userSend(target, text, { replyTo = '', card = null, cardAfter = [], images: refs = [], project = '' } = {}) {
     let body = String(text ?? '').trim();
     if (body === '' && !refs.length) throw new Error('text must not be empty');
     const ref = String(replyTo ?? '').trim();
@@ -1861,12 +2056,13 @@ export function apply(ctx, config, deps = {}) {
     // A card started from the board (Bots 0.12) is a request, never a command.
     const cmd = card ? null : TOPIC_COMMAND.exec(body);
     if (cmd) {
-      const sessionId = await newTopic(target, 'manual');
+      const sessionId = await newTopic(target, 'manual', project);
       body = body.slice(cmd[0].length).trim();
       if (!body && !refs.length) return { sessionId };
-    } else await autoTopic(store.get(target.id) ?? target, 'user');
+    } else await autoTopic(store.get(target.id) ?? target, 'user', project);
     const bot = store.get(target.id) ?? target;
-    const agent = await agentOf(bot);
+    // Inside a project group, the bot answers in its conversation for that project (Bots 0.17.5).
+    const agent = project ? await projectAgentOf(bot, project) : await agentOf(bot);
     const sid = agent.session.id;
     // A message to the dispatcher that starts with a card's reference goes to that card's task (Bots 0.13).
     const lead = !card && isRouterHome(bot, sid) ? leadingCard(body) : null;
@@ -2147,6 +2343,32 @@ export function apply(ctx, config, deps = {}) {
     const all = projects.list().map((x) => `${x.key} (${x.name})`);
     throw new Error(`no project "${String(ref ?? '').trim()}"; ${all.length ? `projects: ${all.join(', ')}` : 'there are no projects yet (the person makes them on the board)'}`);
   };
+  /**
+   * Put a bot on a project group, or take it off (Bots 0.17.5), from `bot_create` / `bot_update`.
+   * `project`: one key to join (`-KEY` or `add:KEY` to join, `KEY` being what it already staffs).
+   * `projects`: the whole list it should be on, which also takes it off the ones left out.
+   * Returns a sentence to append to the tool's answer, or ''.
+   */
+  function applyProjectsArg(bot, projectsArg, projectArg) {
+    const before = projects.ofBot(bot.id).map((p) => p.key).sort();
+    const one = String(projectArg ?? '').trim();
+    if (one) {
+      const add = !one.startsWith('!');
+      const p = projectByRef(one.replace(/^[!+-]|^add:/i, ''));
+      if (add) projects.addMember(p.id, bot.id);
+      else projects.removeMember(p.id, bot.id);
+    }
+    if (Array.isArray(projectsArg)) {
+      const wanted = projectsArg.map((r) => projectByRef(r).id);
+      for (const p of projects.list()) {
+        if (wanted.includes(p.id) && !p.members.includes(bot.id)) projects.addMember(p.id, bot.id);
+        if (!wanted.includes(p.id) && p.members.includes(bot.id)) projects.removeMember(p.id, bot.id);
+      }
+    }
+    const after = projects.ofBot(bot.id).map((p) => p.key).sort();
+    if (before.join(',') === after.join(',')) return '';
+    return after.length ? ` Now on ${after.join(', ')}.` : ` It staffs no project now.`;
+  }
   /** File `n` under project `p` with the next number there (none: under no project). A need already there stays as it is. */
   function fileNeed(n, p) {
     if (!n) return n;
@@ -2162,11 +2384,27 @@ export function apply(ctx, config, deps = {}) {
       const st = needStatusOf(n).status;
       counts[st === 'failed' ? 'waiting' : st] = (counts[st === 'failed' ? 'waiting' : st] ?? 0) + 1;
     }
-    return { id: p.id, key: p.key, name: p.name, brief: p.brief, dir: p.dir, ...(p.repo ? { repo: p.repo } : {}), next: p.last + 1, counts, createdAt: p.createdAt, updatedAt: p.updatedAt };
+    return { id: p.id, key: p.key, name: p.name, brief: p.brief, dir: p.dir, ...(p.repo ? { repo: p.repo } : {}), next: p.last + 1, counts, members: memberView(p), createdAt: p.createdAt, updatedAt: p.updatedAt };
+  }
+  /** A project's cast as the panel draws it: each member bot's name, handle, avatar and whether it has a conversation yet. */
+  function memberView(p) {
+    const out = [];
+    for (const id of p.members) {
+      const b = store.get(id);
+      if (!b) continue;
+      out.push({
+        id: b.id,
+        name: b.name,
+        handle: b.handle,
+        avatar: b.avatar,
+        lead: p.members[0] === b.id,
+        sessionId: projectSessions.get(b.id, p.id) || '',
+      });
+    }
+    return out;
   }
   /** The line a task's first message names its card with (cards.mjs `cardOf`), or ''. */
-  const cardLineOf = (t) => {
-    const n = needOfTicket(t);
+  const cardLineOf = (t) => {    const n = needOfTicket(t);
     const ref = cardRefOf(n);
     const p = projectOfNeed(n);
     return ref && p ? `It is for card ${ref} ("${n.title}") of project ${p.key} (${p.name}).` : '';
@@ -4043,6 +4281,18 @@ export function apply(ctx, config, deps = {}) {
         // The conversation stays where it is.
       }
     }
+    // Its conversations inside project groups go too (Bots 0.17.5), and it leaves every cast.
+    for (const { projectId, sessionId } of projectSessions.ofBot(bot.id)) {
+      uninstall(sessionId);
+      forgetSession(sessionId);
+      try {
+        await service(ctx, 'workspaceRegistry')?.archiveSession?.(sessionId);
+      } catch {
+        // Archived at the next upkeep, or left as it is.
+      }
+    }
+    projectSessions.forgetBot(bot.id);
+    projects.forgetBot(bot.id);
     // Its threads go with it.
     for (const d of discussions.list({ botId: bot.id })) {
       uninstall(d.sessionId);
@@ -4493,7 +4743,10 @@ export function apply(ctx, config, deps = {}) {
           // Its team (0.16), by id and name, as bot_create and bot_update take it.
           const team = b.team && b.role !== 'primary' ? teamsHere().find((x) => x.id === b.team) : undefined;
           const on = team ? `, team ${team.id} (${team.name.en})${b.lead ? ', lead' : ''}` : '';
-          return [`${card(b)} [${botStatus(b)}${on}${open ? `, ${open} open task${open === 1 ? '' : 's'}` : ''}]${b.bio ? `: ${b.bio}` : ''}`, sk.length ? `  skills: ${sk.join(', ')}` : '', ap.length ? `  apps: ${ap.join(', ')}` : '', ts.length ? `  scheduled: ${ts.join('; ')}` : ''].filter(Boolean).join('\n');
+          // The project groups it staffs (Bots 0.17.5), by key, as bot_update takes them.
+          const cast = projects.ofBot(b.id).map((p) => p.key);
+          const inCast = cast.length ? `, projects ${cast.join(', ')}` : '';
+          return [`${card(b)} [${botStatus(b)}${on}${inCast}${open ? `, ${open} open task${open === 1 ? '' : 's'}` : ''}]${b.bio ? `: ${b.bio}` : ''}`, sk.length ? `  skills: ${sk.join(', ')}` : '', ap.length ? `  apps: ${ap.join(', ')}` : '', ts.length ? `  scheduled: ${ts.join('; ')}` : ''].filter(Boolean).join('\n');
         });
         return { ok: true, text: lines.length ? lines.join('\n') : 'No bots yet.', bots: bots.map(face) };
       },
@@ -4511,6 +4764,8 @@ export function apply(ctx, config, deps = {}) {
         ...AVATAR_PARAMS,
         skills: { ...skillInput, description: 'Skills to give it.' },
         team: { type: 'string', description: 'A team it joins (its id or name, as bot_list shows them: a hired one or one the person made); leave it out for none. Its work then comes through the team\'s lead, if it has one.' },
+        project: { type: 'string', description: 'A project group it joins (its key, like APP): it then works there in a conversation of its own, reading that project\'s memory only. Best added to one, not launched on its own.' },
+        projects: { type: 'array', items: { type: 'string' }, description: 'Every project group it should staff, by key: it joins these and leaves the others.' },
       },
       output: { schema: anyValue, render: (_a, v) => text(v.text), presentationMeta: (_a, v) => lossless({ bot: v.bot }) },
       execute: async (args, exec) => {
@@ -4531,12 +4786,14 @@ export function apply(ctx, config, deps = {}) {
           { createdBy: by?.id ?? 'user' },
         );
         const pic = await applyPicture(bot, args, caller);
-        return { ok: true, text: `Created ${card(pic.bot)}. Message it with bot_send_message to @${bot.handle}.${pic.note}${offNote(args.skills, bot)}`, bot: face(pic.bot) };
+        // A bot created for a project joins it at once (Bots 0.17.5).
+        const castNote = applyProjectsArg(pic.bot, args.projects, args.project);
+        return { ok: true, text: `Created ${card(pic.bot)}. Message it with bot_send_message to @${bot.handle}.${pic.note}${offNote(args.skills, bot)}${castNote}`, bot: face(pic.bot) };
       },
     }),
     defineTool({
       name: 'bot_update',
-      description: "Change a bot (yourself included): name, bio, persona, avatar (letters and colour, a picture drawn by AI, or an image file), skills, its team, make it the dispatcher, or make it its team's lead. Only the fields you pass change.",
+      description: "Change a bot (yourself included): name, bio, persona, avatar (letters and colour, a picture drawn by AI, or an image file), skills, its team, the project groups it staffs, make it the dispatcher, or make it its team's lead. Only the fields you pass change.",
       parameters: {
         bot: { type: 'string', required: true, description: '@handle, id or name of the bot.' },
         name: { type: 'string' },
@@ -4551,6 +4808,8 @@ export function apply(ctx, config, deps = {}) {
         make_dispatcher: { type: 'boolean', description: 'true to make this bot the dispatcher.' },
         team: { type: 'string', description: "Move it to a team here (its id or name, as bot_list shows them), or 'none' to take it out of its team. A lead that moves no longer leads." },
         lead: { type: 'boolean', description: "Only for a bot that is part of a team: true to make it the team's lead (the dispatcher hands the team's work to it, and it brings in its teammates), false to take that away (the dispatcher then hands each member its work)." },
+        project: { type: 'string', description: "A project group to put it on (its key, like APP), or take it off ('!APP'): it works in each with a conversation of its own, reading that project's memory only." },
+        projects: { type: 'array', items: { type: 'string' }, description: 'Every project group it should staff, by key: it joins these and leaves the others.' },
       },
       output: { schema: anyValue, render: (_a, v) => text(v.text), presentationMeta: (_a, v) => lossless({ bot: v.bot }) },
       execute: async (args, exec) => {
@@ -4570,14 +4829,17 @@ export function apply(ctx, config, deps = {}) {
           next.team = teamArg(args.team, { primary: (next.role ?? bot.role) === 'primary' });
           if (next.team === (bot.team ?? '')) delete next.team;
         }
-        if (typeof args.lead === 'boolean') {
+        if (args.lead === true || args.lead === false) {
           if (!(next.team ?? bot.team)) throw new Error(`@${bot.handle} is part of no team; only a team has a lead`);
           if (args.lead && (bot.role === 'primary' || next.role === 'primary')) throw new Error('the dispatcher leads no team: it hands out the work of all of them');
           next.lead = args.lead;
         }
+        // The projects it staffs (Bots 0.17.5): a bot works in each with a conversation of its own,
+        // reading that project's memory only. `projects` is the whole cast list it is on.
+        const castNote = applyProjectsArg(bot, args.projects, args.project);
         const pic = await applyPicture(store.save(next), args, caller.restricted ? {} : caller);
         const saved = pic.bot;
-        return { ok: true, text: `Updated ${card(saved)}.${pic.note}${offNote(args.add_skills, saved)}`, bot: face(saved) };
+        return { ok: true, text: `Updated ${card(saved)}.${pic.note}${offNote(args.add_skills, saved)}${castNote}`, bot: face(saved) };
       },
     }),
     defineTool({
@@ -5039,11 +5301,12 @@ export function apply(ctx, config, deps = {}) {
         const { sessionId, bot: me } = actor(exec);
         const scope = args.scope === 'team' ? 'team' : args.scope === 'project' || args.project ? 'project' : 'self';
         if (scope === 'self' && !me) throw new Error("only a bot has its own memory; use scope 'team' to save a note every bot reads");
-        // A project's memory (Bots 0.16): the one named, else the project this task is filed under.
+        // A project's memory (Bots 0.16): the one named, else the project this task or this conversation
+        // is in (Bots 0.17.5: a bot's conversation inside a project group files notes there by itself).
         let proj;
         if (scope === 'project') {
-          const own = ticketOf(sessionId)?.projectId;
-          proj = args.project ? projectByRef(args.project) : own ? projects.get(own) : undefined;
+          const own = projectOfSession(sessionId);
+          proj = args.project ? projectByRef(args.project) : own;
           if (!proj) throw new Error("this conversation works on no project: name one with `project` (its key, like OPC), or save the note with scope 'team' or 'self'");
         }
         const key = scope === 'team' ? 'team' : scope === 'project' ? proj.id : me.id;
@@ -6013,10 +6276,36 @@ export function apply(ctx, config, deps = {}) {
     'projects/save': {
       post: (body) => {
         const input = body?.project && typeof body.project === 'object' ? body.project : {};
-        const fields = Object.fromEntries(['name', 'key', 'brief', 'dir', 'repo'].filter((k) => input[k] !== undefined).map((k) => [k, input[k]]));
+        const fields = Object.fromEntries(['name', 'key', 'brief', 'dir', 'repo', 'members'].filter((k) => input[k] !== undefined).map((k) => [k, input[k]]));
         // Prompts read the projects as they are assembled: the dispatcher and the project's tasks see the change at their next step.
         const p = input.id ? projects.update(input.id, fields) : projects.create(fields);
         return { ok: true, project: projectView(p) };
+      },
+    },
+    /** Puts one bot on a project or takes it off (Bots 0.17.5), so the panel need not send the whole cast. */
+    'projects/member': {
+      post: (body) => {
+        const p = projects.get(String(body?.id ?? ''));
+        if (!p) throw new Error('no such project');
+        const bot = resolve(body?.bot);
+        const add = body?.add !== false;
+        const next = add ? projects.addMember(p.id, bot.id) : projects.removeMember(p.id, bot.id);
+        // Taking a bot off drops its conversation there: it is no longer part of the project, and its
+        // notes stay in the project memory for whoever takes the work over.
+        if (!add) {
+          for (const { sessionId } of projectSessions.ofProject(p.id).filter((x) => x.botId === bot.id)) {
+            uninstall(sessionId);
+            forgetSession(sessionId);
+            try {
+              service(ctx, 'workspaceRegistry')?.archiveSession?.(sessionId);
+            } catch {
+              // Archived at the next upkeep, or left as it is.
+            }
+          }
+          projectSessions.remove(bot.id, p.id);
+          staleMemory();
+        }
+        return { ok: true, project: projectView(next) };
       },
     },
     'projects/delete': {
@@ -6027,6 +6316,17 @@ export function apply(ctx, config, deps = {}) {
         // started yet work in the Bots workspace, without the project, as tasks of no project do.
         const cards = needs.unfile(p.id);
         for (const t of tickets.list()) if (t.projectId === p.id && !t.sessionId) tickets.patch(t.id, { projectId: undefined });
+        // The cast's conversations end with it (Bots 0.17.5).
+        for (const { botId, sessionId } of projectSessions.ofProject(p.id)) {
+          uninstall(sessionId);
+          forgetSession(sessionId);
+          try {
+            service(ctx, 'workspaceRegistry')?.archiveSession?.(sessionId);
+          } catch {
+            // Archived at the next upkeep, or left as it is.
+          }
+        }
+        projectSessions.forgetProject(p.id);
         projects.remove(p.id);
         // Its memory goes with it (Bots 0.16).
         memory.dropProject(p.id);
@@ -6670,7 +6970,9 @@ export function apply(ctx, config, deps = {}) {
 
   /** For tests: which per-Session records this process still keeps for `sessionId`. */
   const tracked = (sessionId) => ({ trigger: trigger.has(sessionId), answered: answered.has(sessionId), turn: turnState.has(sessionId), delivered: deliveredIds.has(sessionId), history: historyRead.has(sessionId) });
-  return { store, state, deliver, install, reconcile, installed, routes, channels, memory, ledger, topics, settings, newTopic, dream, sweep, userSend: async (...a) => (await userSend(...a)).sessionId, panelSend: userSend, openTasks, codexSync, finishTask, tickets, slots, pump, botOfSession, request, ticketView, ticketUpkeep, watch, startup, recoverTickets, tracked, migrateTeams };
+  return { store, state, deliver, install, reconcile, installed, routes, channels, memory, ledger, topics, settings, newTopic, dream, sweep, userSend: async (...a) => (await userSend(...a)).sessionId, panelSend: userSend, openTasks, codexSync, finishTask, tickets, slots, pump, botOfSession, request, ticketView, ticketUpkeep, watch, startup, recoverTickets, tracked, migrateTeams,
+    // Project groups (Bots 0.17.5): a standing cast per project, each member with its own conversation there.
+    projects, projectSessions, ensureProjectSessions, ensureProjectSession: createProjectSession, projectOfSession, memberView };
 }
 
 function serveAvatar(dir, req, res) {
