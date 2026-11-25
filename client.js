@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
     const NS = 'bots';
     const PANEL_ID = 'bots';
     /** The Bots this page is (package.json): the Host says which one it runs, and a stale Host is pointed out. */
-    const BOTS_VERSION = '0.18.3';
+    const BOTS_VERSION = '0.18.4';
     /** How close to a new topic Harness closing the panel counts as caused by it (it archived the conversation behind). */
     const ROTATE_WINDOW_MS = 3000;
     const R = '/__dsh_bots/';
@@ -134,6 +134,30 @@ window.__ModuleLoader__.load({
       })
         .then((r) => (r && r.ok ? r.json() : { ok: false, reason: `HTTP ${r ? r.status : '?'}` }))
         .catch((e) => ({ ok: false, reason: e?.message ?? 'network error' }));
+
+    /**
+     * The Hindsight manager plugin's own API (Bots 0.18.4). It is served from the same origin, so the
+     * panel can list banks and bind one directly; the Host only has to carry the choice. Nothing here
+     * is required: with the plugin absent the route answers 404 and the memory section stays hidden.
+     */
+    const HINDSIGHT_API = '/hindsight-manager/api';
+    /** The option that asks the manager to create a bank for this project rather than pick one. */
+    const NEW_BANK = '__new__';
+    const hsGet = (method) =>
+      fetch(`${HINDSIGHT_API}?method=${encodeURIComponent(method)}`, { cache: 'no-store', credentials: 'same-origin' })
+        .then((r) => (r && r.ok ? r.json() : null))
+        .catch(() => null);
+    const hsPost = (method, params) =>
+      fetch(HINDSIGHT_API, {
+        method: 'POST',
+        cache: 'no-store',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ method, params: params ?? {} }),
+      })
+        // A refusal comes back as 400 with its own message, so the body is read either way.
+        .then((r) => (r ? r.json().catch(() => ({ ok: false, message: `HTTP ${r.status}` })) : { ok: false, message: 'unreachable' }))
+        .catch(() => ({ ok: false, message: 'unreachable' }));
 
     // --- the shared store: one /state fetch for the panel, tool views and badges ------------
 
@@ -3892,6 +3916,45 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
       const [error, setError] = useState('');
       const [busy, setBusy] = useState(false);
       const [removing, setRemoving] = useState(null);
+      // Its memory (Bots 0.18.4): the Hindsight banks on this machine, and the one this project is
+      // bound to. `choice` is null until the person picks something, so an untouched form binds nothing.
+      const [hs, setHs] = useState(null);
+      useEffect(() => {
+        let alive = true;
+        Promise.all([hsGet('banks'), hsGet('projects')]).then(([banks, mine]) => {
+          if (!alive) return;
+          if (!banks || banks.ok === false || !Array.isArray(banks.items)) {
+            setHs({ unavailable: true, banks: [], bound: '', choice: null });
+            return;
+          }
+          const row = (Array.isArray(mine?.items) ? mine.items : []).find((x) => (start?.id && x.id === start.id) || (start?.key && x.key === start.key));
+          setHs({ unavailable: false, banks: banks.items, bound: (row && row.bankId) || '', choice: null });
+        });
+        return () => {
+          alive = false;
+        };
+      }, []);
+      /** Bind, rebind or unbind the project's memory, once the project itself is saved. */
+      const applyMemory = async (saved) => {
+        if (!hs || hs.unavailable || !saved || !saved.key) return;
+        const before = hs.bound || '';
+        const want = hs.choice === null ? before : hs.choice;
+        if (want === before) return;
+        if (want && !saved.dir) {
+          toast(t('hindsightNeedsDir'), 'error');
+          return;
+        }
+        const r = want
+          ? await hsPost('bindProject', { projectKey: saved.key, bankId: want === NEW_BANK ? '' : want })
+          : await hsPost('unbindProject', { projectKey: saved.key });
+        if (r && r.ok === false) {
+          toast(t('hindsightFailed', { reason: r.message || '?' }), 'error');
+          return;
+        }
+        const bound = want === NEW_BANK ? (r?.bankId || '') : want;
+        setHs((s) => (s ? { ...s, bound, choice: null, banks: bound && !s.banks.some((b) => b.bankId === bound) ? [{ bankId: bound, factCount: 0 }, ...s.banks] : s.banks } : s));
+        toast(bound ? t('hindsightSaved', { bank: bound }) : t('hindsightCleared'));
+      };
       const edit = (p) => {
         setEditing(p ?? {});
         setForm({ name: p?.name ?? '', key: p?.key ?? '', dir: p?.dir ?? '', repo: p?.repo ?? '', brief: p?.brief ?? '' });
@@ -3925,8 +3988,12 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
             if (r && r.ok !== false) {
               toast(t('projectSaved'));
               setEditing(null);
+              // The memory binding goes with the save: it needs the project's key and folder, so it runs
+              // on the saved project. It never holds up the form — a refusal is reported by itself.
+              const saved = r?.project ?? null;
+              if (saved) void applyMemory(saved);
               // The saved project goes along, so the caller can open the group it just made.
-              onChanged(r?.project ?? null);
+              onChanged(saved);
             } else setError(r?.reason || t('actionFailed'));
           })
           .finally(() => setBusy(false));
@@ -3938,6 +4005,10 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
             onChanged();
           } else toast(r?.reason || t('actionFailed'), 'error');
         });
+      // What the memory select shows: the person's pick, else whatever is bound now.
+      const hsChoice = !hs || hs.unavailable ? '' : hs.choice === null ? hs.bound || '' : hs.choice;
+      const keyNow = String(form.key || '').trim().toUpperCase();
+      const newBankName = keyNow ? `bots::project::${keyNow}` : 'bots::project::…';
       const body = editing
         ? h(
             'div',
@@ -3990,6 +4061,37 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
                     ),
                   ),
             ),
+            // Its memory (Bots 0.18.4): which Hindsight bank this group's conversations write to. The
+            // manager plugin binds by folder, so it is offered once a folder is set; with that plugin
+            // absent the section is not there at all.
+            hs && !hs.unavailable
+              ? h(
+                  Field,
+                  { label: t('hindsightLabel'), hint: t('hindsightHint') },
+                  h(
+                    'div',
+                    { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
+                    h(
+                      'select',
+                      {
+                        className: 'dshb-input',
+                        value: hsChoice,
+                        disabled: !String(form.dir || '').trim() && !hs.bound,
+                        'data-dsh-bots-project-bank': true,
+                        onChange: (e) => setHs((s) => (s ? { ...s, choice: e.target.value } : s)),
+                      },
+                      h('option', { value: '' }, t('hindsightNone')),
+                      !hs.bound ? h('option', { value: NEW_BANK }, t('hindsightNew', { bank: newBankName })) : null,
+                      hs.banks.map((bank) => h('option', { key: bank.bankId, value: bank.bankId }, `${bank.bankId}${bank.factCount ? ` · ${bank.factCount}` : ''}`)),
+                    ),
+                    h(
+                      'div',
+                      { 'data-dsh-bots-project-bank-state': hs.bound ? 'bound' : 'none', style: { fontSize: TINY, color: C.faint } },
+                      !String(form.dir || '').trim() ? t('hindsightNeedsDir') : hs.bound ? t('hindsightBound', { bank: hs.bound }) : t('hindsightUnbound'),
+                    ),
+                  ),
+                )
+              : null,
             error ? h('div', { 'data-dsh-bots-project-error': true, style: { fontSize: SMALL, color: C.error } }, error) : null,
           )
         : h(
@@ -10568,6 +10670,16 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         charterSaved: 'Charter saved.',
         charterRemoved: 'Charter removed: this project has none now.',
         charterDirty: 'Unsaved changes.',
+        hindsightLabel: 'Memory',
+        hindsightHint: 'Each group can keep its own Hindsight bank. It is bound by the folder above, so set one first; every conversation of this group then writes there, and other groups read nothing of it.',
+        hindsightNone: 'Not bound',
+        hindsightNew: 'Create a bank for this project ({bank})',
+        hindsightBound: 'Bound to {bank}',
+        hindsightUnbound: 'Not bound to any bank yet.',
+        hindsightNeedsDir: 'Set the folder above to bind memory: a bank is bound by folder.',
+        hindsightSaved: 'Memory bound to {bank}.',
+        hindsightCleared: 'Memory unbound.',
+        hindsightFailed: 'The project is saved, but its memory was not bound: {reason}',
         projectBrief: 'Brief',
         projectBriefHint: 'Every task of the project reads it: goals, conventions, links.',
         projectBriefPlaceholder: 'What this project is, and how work on it is done',
@@ -11686,6 +11798,16 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         charterSaved: '章程已保存。',
         charterRemoved: '章程已删除：这个项目现在没有章程。',
         charterDirty: '有改动还没保存。',
+        hindsightLabel: '记忆',
+        hindsightHint: '每个群可以有自己的 Hindsight bank。它按上面的目录绑定，所以先设目录；设好后这个群的所有对话都写进去，别的群读不到。',
+        hindsightNone: '不绑定',
+        hindsightNew: '为这个项目新建 bank（{bank}）',
+        hindsightBound: '已绑定 {bank}',
+        hindsightUnbound: '还没有绑定任何 bank。',
+        hindsightNeedsDir: '先在上面设好目录才能绑定记忆：bank 是按目录绑的。',
+        hindsightSaved: '记忆已绑定到 {bank}。',
+        hindsightCleared: '已解除记忆绑定。',
+        hindsightFailed: '项目已保存，但记忆没绑上：{reason}',
         projectBrief: '简介',
         projectBriefHint: '项目的每个任务都会读到：目标、约定、链接。',
         projectBriefPlaceholder: '这个项目是什么，活怎么干',

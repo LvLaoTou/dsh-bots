@@ -3342,9 +3342,9 @@ test('threads: a Host that runs another Bots than this page says to restart Harn
   const stale = await threadsChat({ state: { botsVersion: '0.9.0' } });
   const [banner] = findAll(stale.tree, (n) => n.props['data-dsh-bots-version-stale'] !== undefined);
   assert.equal(banner?.props['data-dsh-bots-version-stale'], '0.9.0');
-  assert.match(collect(banner).join(' '), /Harness still runs Bots 0\.9\.0; this page is 0\.18\.3\. Quit and reopen Harness/);
+  assert.match(collect(banner).join(' '), /Harness still runs Bots 0\.9\.0; this page is 0\.18\.4\. Quit and reopen Harness/);
   stale.hooks.runCleanups();
-  for (const state of [{ botsVersion: '0.18.3' }, { version: 7 }, {}]) {
+  for (const state of [{ botsVersion: '0.18.4' }, { version: 7 }, {}]) {
     const v = await threadsChat({ state });
     assert.equal(findAll(v.tree, (n) => n.props['data-dsh-bots-version-stale'] !== undefined).length, 0, JSON.stringify(state));
     v.hooks.runCleanups();
@@ -3547,6 +3547,102 @@ test('0.18.3: the New menu makes a group chat, the same level as making a team, 
   assert.equal(saved.body.project.name, '奶茶咖啡因记录');
   assert.equal(saved.body.project.id, undefined);
   v.hooks.runCleanups();
+});
+
+test('0.18.4: a group can be bound to a Hindsight bank when it is made or edited', async () => {
+  const v = await openView('data-dsh-bots-projects-entry');
+  const hsPosts = [];
+  const inner = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const target = String(url);
+    if (target.startsWith('/hindsight-manager/api')) {
+      if (init?.method === 'POST') {
+        hsPosts.push(JSON.parse(init.body));
+        return { ok: true, json: async () => ({ ok: true, bankId: 'bots::project::OPC' }) };
+      }
+      const method = new URL(target, 'http://x').searchParams.get('method');
+      return { ok: true, json: async () => (method === 'banks' ? { ok: true, items: [{ bankId: 'workspace::default', factCount: 10 }, { bankId: 'bots::project::OPC', factCount: 3 }] } : { ok: true, items: [{ id: 'pjopc00001', key: 'OPC', dir: '/Users/me/opc', bankId: 'bots::project::OPC', mappingKind: 'own' }] }) };
+    }
+    return inner(url, init);
+  };
+  try {
+    // Saving opens the group it just saved, so the list is reached again through Back.
+    const backToList = async () => {
+      if (findAll(v.tree, (n) => n.props['data-dsh-bots-project-back']).length) {
+        click(v.tree, 'data-dsh-bots-project-back');
+        await v.rerender();
+      }
+    };
+    click(v.tree, 'data-dsh-bots-project-list-edit', 'pjopc00001');
+    await v.rerender();
+    const bank = () => findAll(v.tree, (n) => n.props['data-dsh-bots-project-bank'])[0];
+    // It opens on what is bound now, and says so.
+    assert.equal(bank().props.value, 'bots::project::OPC');
+    assert.match(collect(v.tree).join(' '), /Bound to bots::project::OPC/);
+    // Picking another bank binds it with that bank id.
+    bank().props.onChange({ target: { value: 'workspace::default' } });
+    await v.rerender();
+    click(v.tree, 'data-dsh-bots-project-save');
+    await v.rerender();
+    assert.deepEqual(hsPosts.at(-1), { method: 'bindProject', params: { projectKey: 'OPC', bankId: 'workspace::default' } });
+    // Choosing Not bound unbinds it.
+    await backToList();
+    click(v.tree, 'data-dsh-bots-project-list-edit', 'pjopc00001');
+    await v.rerender();
+    bank().props.onChange({ target: { value: '' } });
+    await v.rerender();
+    click(v.tree, 'data-dsh-bots-project-save');
+    await v.rerender();
+    assert.deepEqual(hsPosts.at(-1), { method: 'unbindProject', params: { projectKey: 'OPC' } });
+    // Leaving the choice alone touches no bank at all.
+    const before = hsPosts.length;
+    await backToList();
+    click(v.tree, 'data-dsh-bots-project-list-edit', 'pjopc00001');
+    await v.rerender();
+    click(v.tree, 'data-dsh-bots-project-save');
+    await v.rerender();
+    assert.equal(hsPosts.length, before, 'an untouched form binds nothing');
+  } finally {
+    globalThis.fetch = inner;
+    v.hooks.runCleanups();
+  }
+});
+
+test('0.18.4: memory waits for a folder, and a Host without the manager shows no memory section', async () => {
+  const v = await openView('data-dsh-bots-projects-entry');
+  const inner = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    if (String(url).startsWith('/hindsight-manager/api')) {
+      const method = new URL(String(url), 'http://x').searchParams.get('method');
+      return { ok: true, json: async () => (init?.method === 'POST' ? { ok: true } : method === 'banks' ? { ok: true, items: [{ bankId: 'workspace::default' }] } : { ok: true, items: [] }) };
+    }
+    return inner(url, init);
+  };
+  try {
+    click(v.tree, 'data-dsh-bots-project-list-edit', 'pjopc00001');
+    await v.rerender();
+    // Clearing the folder takes the binding away with it: a bank is bound by folder.
+    findAll(v.tree, (n) => n.props['data-dsh-bots-project-dir'])[0].props.onChange({ target: { value: '' } });
+    await v.rerender();
+    assert.equal(findAll(v.tree, (n) => n.props['data-dsh-bots-project-bank'])[0].props.disabled, true);
+    assert.match(collect(v.tree).join(' '), /a bank is bound by folder/);
+  } finally {
+    globalThis.fetch = inner;
+    v.hooks.runCleanups();
+  }
+  // No manager plugin: nothing about memory is drawn.
+  const w = await openView('data-dsh-bots-projects-entry');
+  const plain = globalThis.fetch;
+  globalThis.fetch = async (url, init) => (String(url).startsWith('/hindsight-manager/api') ? { ok: false, status: 404, json: async () => null } : plain(url, init));
+  try {
+    click(w.tree, 'data-dsh-bots-project-list-edit', 'pjopc00001');
+    await w.rerender();
+    assert.equal(findAll(w.tree, (n) => n.props['data-dsh-bots-project-bank']).length, 0);
+    assert.equal(findAll(w.tree, (n) => n.props['data-dsh-bots-project-name']).length, 1, 'the form itself is unaffected');
+  } finally {
+    globalThis.fetch = plain;
+    w.hooks.runCleanups();
+  }
 });
 
 test('board: a card in To do shows its reference and description, starts with whoever is chosen, moves between projects and is marked done', async () => {

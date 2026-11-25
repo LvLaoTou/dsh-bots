@@ -5,6 +5,17 @@ English | [简体中文](CHANGELOG.zh-CN.md)
 What changed in each version of Bots, newest first, and what to do after upgrading. Bots tells you when a new
 version is out ([Updates](README.md#updates)).
 
+## 0.18.4 — 2026-11-25
+
+- **A group can be bound to its own memory when you make or edit it.** The group form gained a **Memory** field:
+  pick **Create a bank for this project** (named `bots::project::KEY`), pick an existing Hindsight bank, or leave it
+  unbound — and that applies on save. The section comes from the **dsh-hindsight-manager** plugin, through its own
+  same-origin API; with that plugin absent nothing about memory is drawn, so Bots stays usable on its own.
+- A bank is bound by **folder**, so the field waits for one: it is disabled and says so until the group has a folder,
+  and picking a bank without one is refused with the same explanation.
+- The binding runs after the project is saved (it needs the key and folder). A refusal never loses the project: it is
+  reported on its own and the group is still created.
+
 ## 0.18.3 — 2026-11-25
 
 - **新建群聊 sits in the New menu, beside New team.** The button that makes a bot also makes a group chat now: it opens
