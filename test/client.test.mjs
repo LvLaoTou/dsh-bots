@@ -3346,9 +3346,9 @@ test('threads: a Host that runs another Bots than this page says to restart Harn
   const stale = await threadsChat({ state: { botsVersion: '0.9.0' } });
   const [banner] = findAll(stale.tree, (n) => n.props['data-dsh-bots-version-stale'] !== undefined);
   assert.equal(banner?.props['data-dsh-bots-version-stale'], '0.9.0');
-  assert.match(collect(banner).join(' '), /Harness still runs Bots 0\.9\.0; this page is 0\.18\.9\. Quit and reopen Harness/);
+  assert.match(collect(banner).join(' '), /Harness still runs Bots 0\.9\.0; this page is 0\.19\.0\. Quit and reopen Harness/);
   stale.hooks.runCleanups();
-  for (const state of [{ botsVersion: '0.18.9' }, { version: 7 }, {}]) {
+  for (const state of [{ botsVersion: '0.19.0' }, { version: 7 }, {}]) {
     const v = await threadsChat({ state });
     assert.equal(findAll(v.tree, (n) => n.props['data-dsh-bots-version-stale'] !== undefined).length, 0, JSON.stringify(state));
     v.hooks.runCleanups();
@@ -3494,6 +3494,32 @@ test('0.18.8/9: group chats are listed in the rail at the level of a team, and e
   click(v.tree, 'data-dsh-bots-rail-chat-edit', 'pjopc00001');
   await v.rerender();
   assert.equal(findAll(v.tree, (n) => n.props['data-dsh-bots-project-name'])[0].props.value, 'One-person company');
+  v.hooks.runCleanups();
+});
+
+test('0.19: a member becomes lead by its switch, and the lead goes first', async () => {
+  const v = await openView('data-dsh-bots-projects-entry');
+  click(v.tree, 'data-dsh-bots-project-list-edit', 'pjopc00001');
+  await v.rerender();
+  // Two bots join the cast, in that order: the first one leads.
+  click(v.tree, 'data-dsh-bots-project-member', 'bot-a');
+  await v.rerender();
+  click(v.tree, 'data-dsh-bots-project-member', 'bot-b');
+  await v.rerender();
+  const leads = () => findAll(v.tree, (n) => n.props['data-dsh-bots-project-lead'] !== undefined).map((n) => n.props['data-dsh-bots-project-lead']);
+  assert.deepEqual(leads(), ['bot-a', 'bot-b']);
+  const sw = (id) => findAll(v.tree, (n) => n.props['data-dsh-bots-project-lead-switch'] === id)[0];
+  assert.equal(sw('bot-a').props['aria-checked'], true);
+  assert.equal(sw('bot-a').props.disabled, true, 'there is always exactly one lead');
+  assert.equal(sw('bot-b').props['aria-checked'], false);
+  // Switching the other on moves it to the front and takes the lead from the first.
+  sw('bot-b').props.onClick();
+  await v.rerender();
+  assert.deepEqual(leads(), ['bot-b', 'bot-a']);
+  assert.equal(sw('bot-b').props['aria-checked'], true);
+  click(v.tree, 'data-dsh-bots-project-save');
+  await v.rerender();
+  assert.deepEqual(v.posts.filter((p) => p.path.endsWith('/projects/save')).at(-1).body.project.members, ['bot-b', 'bot-a']);
   v.hooks.runCleanups();
 });
 
