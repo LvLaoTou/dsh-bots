@@ -5,6 +5,15 @@ English | [简体中文](CHANGELOG.zh-CN.md)
 What changed in each version of Bots, newest first, and what to do after upgrading. Bots tells you when a new
 version is out ([Updates](README.md#updates)).
 
+## 0.18.2 — 2026-11-25
+
+- **A group can be made from the groups page.** Before, the only way was the board's project dialog; the rail's list could
+  only be read. The **Groups** page now has a **New project group** button (and one in the empty state), and it opens the
+  group it just created; each row has an edit button too.
+- The rail entry reads **Groups**, with Project groups as the page title.
+- Deleting a project group removes the charter kept in the bots cache with it; a charter pointed into the project's own
+  folder (`CHARTER.md`) is left exactly where it is.
+
 ## 0.18.1 — 2026-11-24
 
 - **A project can have a charter of its own.** Its page gained a **Charter** pane: one Markdown file saying who does what,

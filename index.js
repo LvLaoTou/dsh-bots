@@ -6439,6 +6439,16 @@ export function apply(ctx, config, deps = {}) {
           }
         }
         projectSessions.forgetProject(p.id);
+        // Its charter (Bots 0.18.1): the one kept in the bots cache goes with the project. A charter the
+        // person pointed into the project's own folder is theirs — it may be CHARTER.md in a repository,
+        // so it is left exactly where it is.
+        if (!String(p.charter ?? '').trim()) {
+          try {
+            writeCharter(charterPathOf(p, { cacheDir: dir, home }), '');
+          } catch {
+            // A charter that cannot be removed leaves an unused file; it is never read again.
+          }
+        }
         projects.remove(p.id);
         // Its memory goes with it (Bots 0.16).
         memory.dropProject(p.id);

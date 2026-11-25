@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
     const NS = 'bots';
     const PANEL_ID = 'bots';
     /** The Bots this page is (package.json): the Host says which one it runs, and a stale Host is pointed out. */
-    const BOTS_VERSION = '0.18.1';
+    const BOTS_VERSION = '0.18.2';
     /** How close to a new topic Harness closing the panel counts as caused by it (it archived the conversation behind). */
     const ROTATE_WINDOW_MS = 3000;
     const R = '/__dsh_bots/';
@@ -1442,7 +1442,7 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
                 count: openTasks,
               })
             : null,
-          h(NavTile, { icon: Icon.target(15), label: t('projects'), hint: t('projectsNavHint'), active: view === 'project', attr: 'data-dsh-bots-projects-entry', onClick: onProjects }),
+          h(NavTile, { icon: Icon.target(15), label: t('navProjects'), hint: t('projectsNavHint'), active: view === 'project', attr: 'data-dsh-bots-projects-entry', onClick: onProjects }),
           h(NavTile, { icon: Icon.activity(15), label: t('activity'), hint: t('activityHint', { n: messageCount ?? 0 }), active: view === 'activity', attr: 'data-dsh-bots-activity', onClick: onActivity }),
           onUsage ? h(NavTile, { icon: Icon.chart(15), label: t('usage'), hint: t('usageHint', { tokens: fmtNum(bots.reduce((n, b) => n + (Number(b.usageToday) || 0), 0)) }), active: view === 'usage', attr: 'data-dsh-bots-usage-entry', onClick: onUsage }) : null,
           onMemory ? h(NavTile, { icon: Icon.brain(15), label: t('navMemory'), hint: `${t('teamMemoryTitle')} · ${t('teamMemoryHint', { n: teamNotes ?? 0 })}`, active: view === 'memory', attr: 'data-dsh-bots-memory-entry', onClick: onMemory }) : null,
@@ -3875,12 +3875,17 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         h('div', { style: { fontSize: TINY, color: C.faint, lineHeight: 1.5 } }, who ? t('cardDirectHint') : t('cardDispatcherHint')),
       );
     }
-    /** The projects cards are filed under (Bots 0.12): list, add, change and remove them. */
-    function ProjectsModal({ t, projects, env, toast, onClose, onChanged, bots = [] }) {
-      const [editing, setEditing] = useState(null);
-      const [form, setForm] = useState({ name: '', key: '', dir: '', repo: '', brief: '' });
+    /**
+     * The projects cards are filed under (Bots 0.12): list, add, change and remove them.
+     * `editing` opens it straight on the form for that project, or for a new one when given `{}`
+     * (the project group's own page does that, so making a group is one click).
+     */
+    function ProjectsModal({ t, projects, env, toast, onClose, onChanged, bots = [], editing: initial = null }) {
+      const start = initial ?? null;
+      const [editing, setEditing] = useState(start);
+      const [form, setForm] = useState(() => ({ name: start?.name ?? '', key: start?.key ?? '', dir: start?.dir ?? '', repo: start?.repo ?? '', brief: start?.brief ?? '' }));
       // The cast is edited apart from the form: it is sent only when it actually changed (Bots 0.17.5).
-      const [cast, setCast] = useState([]);
+      const [cast, setCast] = useState(() => (start?.members ?? []).map((m) => m.id));
       const [error, setError] = useState('');
       const [busy, setBusy] = useState(false);
       const [removing, setRemoving] = useState(null);
@@ -3917,7 +3922,8 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
             if (r && r.ok !== false) {
               toast(t('projectSaved'));
               setEditing(null);
-              onChanged();
+              // The saved project goes along, so the caller can open the group it just made.
+              onChanged(r?.project ?? null);
             } else setError(r?.reason || t('actionFailed'));
           })
           .finally(() => setBusy(false));
@@ -8080,17 +8086,24 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
      * The project groups (Bots 0.17.5), as a list to open: each one's cast, and what it is about. A
      * project's page is where you talk to its bots, each in the conversation it keeps for that project.
      */
-    function ProjectListView({ t, onOpen }) {
-      const { data, failed } = useJson('projects', STATE_POLL_MS * 6);
+    function ProjectListView({ t, bots = [], env = null, toast = () => {}, lang = 'en', onOpen }) {
+      const { data, failed, reload } = useJson('projects', STATE_POLL_MS * 6);
+      const [managing, setManaging] = useState(null);
       const items = Array.isArray(data?.items) ? data.items : [];
       return h(
         'div',
         { 'data-dsh-bots-project-list': items.length, style: { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 } },
         h(
           'header',
-          { style: { padding: '18px 24px 14px', borderBottom: `1px solid ${C.border1}`, display: 'flex', flexDirection: 'column', gap: 2 } },
-          h('span', { style: { fontWeight: 700, fontSize: 18 } }, t('projects')),
-          h('span', { style: { fontSize: SMALL, color: C.muted } }, t('projectGroupSub')),
+          { style: { padding: '18px 24px 14px', borderBottom: `1px solid ${C.border1}`, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' } },
+          h(
+            'div',
+            { style: { flex: '1 1 200px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 } },
+            h('span', { style: { fontWeight: 700, fontSize: 18 } }, t('projectGroupsTitle')),
+            h('span', { style: { fontSize: SMALL, color: C.muted } }, t('projectGroupSub')),
+          ),
+          // The way in when there is nothing yet, and the way to add another one (Bots 0.18.2).
+          h(Btn, { size: 'sm', kind: 'primary', icon: Icon.plus(12), onClick: () => setManaging({ opened: false }), 'data-dsh-bots-project-new': true }, t('projectGroupNew')),
         ),
         h(
           'div',
@@ -8098,21 +8111,51 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
           failed
             ? h('div', { style: { fontSize: SMALL, color: C.faint } }, t('actionFailed'))
             : items.length === 0
-              ? h('div', { style: { fontSize: SMALL, color: C.faint } }, t('projectGroupNoProjects'))
+              ? h(
+                  'div',
+                  { 'data-dsh-bots-project-list-empty': true, style: { display: 'flex', flexDirection: 'column', gap: 10, padding: '28px 0', alignItems: 'flex-start' } },
+                  h('span', { style: { fontWeight: 600 } }, t('projectGroupNoProjects')),
+                  h('span', { style: { fontSize: SMALL, color: C.muted, maxWidth: 520, lineHeight: 1.6 } }, t('projectGroupNoProjectsHint')),
+                  h(Btn, { size: 'sm', kind: 'primary', icon: Icon.plus(12), onClick: () => setManaging({ opened: false }), 'data-dsh-bots-project-new-empty': true }, t('projectGroupNew')),
+                )
               : items.map((p) =>
                   h(
-                    'button',
-                    { key: p.id, type: 'button', className: 'dshb-card', 'data-dsh-bots-project-open': p.id, onClick: () => onOpen(p.id), style: { display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', textAlign: 'left', cursor: 'pointer', border: `1px solid ${C.border1}`, background: 'transparent' } },
-                    h(CardRef, { text: p.key }),
+                    'div',
+                    { key: p.id, style: { display: 'flex', alignItems: 'center', gap: 8 } },
                     h(
-                      'div',
-                      { style: { flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 } },
-                      h('span', { style: { fontWeight: 600 } }, p.name),
-                      h('span', { style: { fontSize: TINY, color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, (p.members ?? []).length ? (p.members ?? []).map((m, i) => `${i === 0 ? '★ ' : ''}@${m.handle}`).join(', ') : t('projectNoMembers')),
+                      'button',
+                      { type: 'button', className: 'dshb-card', 'data-dsh-bots-project-open': p.id, onClick: () => onOpen(p.id), style: { flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', textAlign: 'left', cursor: 'pointer', border: `1px solid ${C.border1}`, background: 'transparent' } },
+                      h(CardRef, { text: p.key }),
+                      h(
+                        'div',
+                        { style: { flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 } },
+                        h('span', { style: { fontWeight: 600 } }, p.name),
+                        h('span', { style: { fontSize: TINY, color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, (p.members ?? []).length ? (p.members ?? []).map((m, i) => `${i === 0 ? '★ ' : ''}@${m.handle}`).join(', ') : t('projectNoMembers')),
+                      ),
                     ),
+                    h(Btn, { size: 'sm', kind: 'ghost', icon: Icon.edit(12), title: t('edit'), onClick: () => setManaging({ edit: p }), 'data-dsh-bots-project-list-edit': p.id }),
                   ),
                 ),
         ),
+        managing
+          ? h(ProjectsModal, {
+              t,
+              projects: items,
+              env,
+              toast,
+              bots,
+              editing: managing.edit ?? {},
+              onClose: () => setManaging(null),
+              onChanged: (saved) => {
+                void reload();
+                // Straight into the group just created: that is what the person asked for.
+                if (saved?.id) {
+                  setManaging(null);
+                  onOpen(saved.id);
+                }
+              },
+            })
+          : null,
       );
     }
     /**
@@ -9267,7 +9310,7 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
       } else if (shownView === 'project') {
         main = projectId
           ? h(ProjectGroupView, { key: projectId, t, project: projectId, bots, env: env2, toast: showToast, lang, onBack: () => setProjectId(null) })
-          : h(ProjectListView, { t, onOpen: setProjectId });
+          : h(ProjectListView, { t, bots, env: env2, toast: showToast, lang, onOpen: setProjectId });
       } else if (shownView === 'needs') {
         const toTask = (id) => {
           setView('tasks');
@@ -10492,9 +10535,13 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         projectsNavHint: 'Talk to its bots, each in its own conversation',
         projectGroup: 'Project group',
         projectGroupSub: 'Each bot works here in a conversation of its own, reading this project\'s memory only.',
-        projectGroupNoProjects: 'No projects yet: make one on the board, then add its bots.',
+        navProjects: 'Groups',
+        projectGroupsTitle: 'Project groups',
+        projectGroupNew: 'New project group',
+        projectGroupNoProjects: 'No project groups yet.',
+        projectGroupNoProjectsHint: 'A project group is where a standing cast works on one thing: make one, add the bots that work on it, and write its charter. Each bot then talks to you here in a conversation that reads this project\'s memory only.',
         projectGroupEmptyTitle: 'No bots in this project yet',
-        projectGroupEmptyBody: 'Edit the project on the board and add its cast. Each bot then gets a conversation here that reads this project\'s memory only.',
+        projectGroupEmptyBody: 'Go back to the list and edit this group to add its cast. Each bot then gets a conversation here that reads this project\'s memory only.',
         projectPaneChat: 'Chat',
         charterTitle: 'Charter',
         charterHint: 'This is the project\'s own Markdown file: what it is, who does what, how the cast works together, where the memory goes. Every conversation of the project reads it, so editing it changes how the work is done. Leave the project\'s folder path on the board and the file can be kept in its repository as CHARTER.md.',
@@ -11605,9 +11652,13 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         projectsNavHint: '和项目里的 bot 说话，每个都有自己的会话',
         projectGroup: '项目组',
         projectGroupSub: '每个 bot 在这里有自己的会话，只读这个项目的记忆。',
-        projectGroupNoProjects: '还没有项目：先在看板上建一个，再把 bot 加进去。',
+        navProjects: '项目组',
+        projectGroupsTitle: '项目组',
+        projectGroupNew: '新建项目组',
+        projectGroupNoProjects: '还没有项目组。',
+        projectGroupNoProjectsHint: '项目组是一拨固定的人一起做一件事的地方：建一个，把做这件事的 bot 加进去，写上它的章程。每个 bot 随后会在这里跟你说话，它读的只有这个项目的记忆。',
         projectGroupEmptyTitle: '这个项目里还没有 bot',
-        projectGroupEmptyBody: '到看板上编辑这个项目、加上成员。每个成员随后会在这里有一个会话，只读这个项目的记忆。',
+        projectGroupEmptyBody: '回到列表，编辑这个项目组加上成员。每个成员随后会在这里有一个会话，只读这个项目的记忆。',
         projectPaneChat: '对话',
         charterTitle: '章程',
         charterHint: '这是项目自己的 Markdown 文件：这个项目是什么、谁负责什么、大家怎么配合、记忆放在哪儿。项目的每个会话都会读到它，改了它就等于改了这件事的干法。项目在看板上设了目录的话，这份文件可以留在那个仓库里当 CHARTER.md。',

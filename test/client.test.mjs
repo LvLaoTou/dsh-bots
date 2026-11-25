@@ -1156,8 +1156,8 @@ test('0.16.1: the rail\'s views are one-line tiles, two to a line, with their wo
     const nav = findAll(v.tree, (n) => n.props['data-dsh-bots-nav'])[0];
     assert.equal(nav.props.style.gridTemplateColumns, 'repeat(2, minmax(0, 1fr))');
     const tiles = findAll(nav, (n) => n.type === 'button');
-    // Projects sits with the other views (Bots 0.17.5: a project group is where you talk to its bots).
-    assert.deepEqual(tiles.map((n) => collect(n).join(' ').split(' ')[0]), ['Requests', 'Tasks', 'Projects', 'Activity', 'Usage', 'Memory', 'Hire']);
+    // Project groups sit with the other views (Bots 0.18.2: it is where a group is made and talked in).
+    assert.deepEqual(tiles.map((n) => collect(n).join(' ').split(' ')[0]), ['Requests', 'Tasks', 'Groups', 'Activity', 'Usage', 'Memory', 'Hire']);
     // Under way, not waiting for you: a plain count, no red badge.
     const requests = tiles[0];
     assert.equal(findAll(requests, (n) => n.props['data-dsh-bots-needs-badge'] !== undefined).length, 0);
@@ -3342,9 +3342,9 @@ test('threads: a Host that runs another Bots than this page says to restart Harn
   const stale = await threadsChat({ state: { botsVersion: '0.9.0' } });
   const [banner] = findAll(stale.tree, (n) => n.props['data-dsh-bots-version-stale'] !== undefined);
   assert.equal(banner?.props['data-dsh-bots-version-stale'], '0.9.0');
-  assert.match(collect(banner).join(' '), /Harness still runs Bots 0\.9\.0; this page is 0\.18\.1\. Quit and reopen Harness/);
+  assert.match(collect(banner).join(' '), /Harness still runs Bots 0\.9\.0; this page is 0\.18\.2\. Quit and reopen Harness/);
   stale.hooks.runCleanups();
-  for (const state of [{ botsVersion: '0.18.1' }, { version: 7 }, {}]) {
+  for (const state of [{ botsVersion: '0.18.2' }, { version: 7 }, {}]) {
     const v = await threadsChat({ state });
     assert.equal(findAll(v.tree, (n) => n.props['data-dsh-bots-version-stale'] !== undefined).length, 0, JSON.stringify(state));
     v.hooks.runCleanups();
