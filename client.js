@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
     const NS = 'bots';
     const PANEL_ID = 'bots';
     /** The Bots this page is (package.json): the Host says which one it runs, and a stale Host is pointed out. */
-    const BOTS_VERSION = '0.18.7';
+    const BOTS_VERSION = '0.18.8';
     /** How close to a new topic Harness closing the panel counts as caused by it (it archived the conversation behind). */
     const ROTATE_WINDOW_MS = 3000;
     const R = '/__dsh_bots/';
@@ -1291,12 +1291,16 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         h('span', { style: { flex: 1, minWidth: 0, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, label),
         badge > 0 ? h(NeedsBadge, { n: badge, label: badgeLabel, attr: badgeAttr }) : count > 0 ? h('span', { 'data-dsh-bots-nav-count': count, style: { flex: 'none', fontSize: TINY, color: C.muted, fontVariantNumeric: 'tabular-nums' } }, count > 99 ? '99+' : String(count)) : null,
       );
-    function Rail({ t, bots, primaryId, selected, onSelect, onNew, onNewTeam, onEditTeam, onTeams, view, onActivity, messageCount, onUsage, onMemory, onSettings, teamNotes, onTasks, attention = 0, openTasks = 0, onNeeds, needCounts = {}, onProjects, projectsCount = 0, onNewGroup }) {
+    function Rail({ t, bots, primaryId, selected, onSelect, onNew, onNewTeam, onEditTeam, onTeams, view, onActivity, messageCount, onUsage, onMemory, onSettings, teamNotes, onTasks, attention = 0, openTasks = 0, onNeeds, needCounts = {}, onProjects, projectsCount = 0, onNewGroup, chatId = null, onChat }) {
       const needsWaiting = Number(needCounts?.waiting) || 0;
       const needsWorking = Number(needCounts?.working) || 0;
       const lang = langOf(t);
       const [q, setQ] = useState('');
       const [menu, setMenu] = useState(false);
+      // Group chats listed in the rail (Bots 0.18.8), filtered by the same search as the bots.
+      const { data: chatData } = useJson('projects', STATE_POLL_MS * 6);
+      const allChats = Array.isArray(chatData?.items) ? chatData.items : [];
+      const chats = (q.trim() ? allChats.filter((c) => String(c.name || '').toLowerCase().includes(q.trim().toLowerCase())) : allChats).slice(0, 20);
       const needle = q.trim().toLowerCase();
       const shown = bots
         .filter((b) => !needle || [b.name, b.handle, b.bio].some((s) => str(s).toLowerCase().includes(needle)))
@@ -1387,6 +1391,37 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         h(
           'div',
           { className: 'dshb-scroll', style: { flex: 1, padding: '2px 8px 8px', display: 'flex', flexDirection: 'column', gap: 2 } },
+          // Group chats sit in the list itself, at the same level as a team (Bots 0.18.8), so a new one
+          // is where the person looks for it rather than behind a view.
+          chats.length
+            ? h(
+                'div',
+                { 'data-dsh-bots-rail-chats': chats.length, style: { display: 'flex', flexDirection: 'column', gap: 2, paddingBottom: 4 } },
+                h(
+                  'div',
+                  { style: { display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '8px 10px 3px', fontSize: TINY, fontWeight: 700, color: C.faint, letterSpacing: '.02em', minHeight: 26 } },
+                  h('span', { style: { flex: 1, minWidth: 0 } }, t('railChats')),
+                  h('span', { style: { fontWeight: 500 } }, chats.length),
+                ),
+                chats.map((c) =>
+                  h(
+                    'button',
+                    {
+                      key: c.id,
+                      type: 'button',
+                      'data-dsh-bots-rail-chat': c.id,
+                      'data-active': view === 'project' && chatId === c.id,
+                      title: c.name,
+                      onClick: () => onChat && onChat(c.id),
+                      style: { display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '7px 10px', border: 0, borderRadius: 8, background: 'transparent', color: 'inherit', font: 'inherit', textAlign: 'left', cursor: 'pointer' },
+                    },
+                    h('span', { style: { display: 'inline-flex', flex: 'none', color: C.muted } }, Icon.target(14)),
+                    h('span', { style: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 } }, c.name),
+                    h('span', { style: { flex: 'none', fontSize: TINY, color: C.faint } }, String((c.members ?? []).length)),
+                  ),
+                ),
+              )
+            : null,
           shown.length === 0
             ? h('div', { style: { padding: '18px 10px', fontSize: SMALL, color: C.faint, textAlign: 'center' } }, bots.length ? t('noMatch') : t('noBotsShort'))
             : groups
@@ -9468,6 +9503,13 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
             setProjectId(null);
             setNewGroup(true);
           },
+          // A group chat listed in the rail opens its page (Bots 0.18.8).
+          chatId: projectId,
+          onChat: (id) => {
+            setView('project');
+            setNewGroup(false);
+            setProjectId(id);
+          },
         }),
         h(
           'div',
@@ -10629,6 +10671,7 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         projectsNavHint: 'Talk to its bots, each in its own conversation',
         projectGroup: 'Group chat',
         projectGroupSub: 'Each bot works here in a conversation of its own, reading this project\'s memory only.',
+        railChats: 'Group chats',
         navProjects: 'Groups',
         projectGroupsTitle: 'Group chats',
         projectGroupNew: 'New group chat',
@@ -11757,6 +11800,7 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         projectsNavHint: '和群聊里的 bot 说话，每个都有自己的会话',
         projectGroup: '群聊',
         projectGroupSub: '每个 bot 在这里有自己的会话，只读这个群聊的记忆。',
+        railChats: '群聊',
         navProjects: '群聊',
         projectGroupsTitle: '群聊',
         projectGroupNew: '新建群聊',

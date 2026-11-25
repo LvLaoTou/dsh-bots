@@ -5,6 +5,13 @@ English | [简体中文](CHANGELOG.zh-CN.md)
 What changed in each version of Bots, newest first, and what to do after upgrading. Bots tells you when a new
 version is out ([Updates](README.md#updates)).
 
+## 0.18.8 — 2026-11-25
+
+- **Group chats are listed in the rail itself, at the level of a team.** They used to be reachable only through the
+  Groups view; the rail now opens with a **Group chats** block — one row each, name and cast size — and one click opens
+  that chat. It sits beside the team headers, not under them.
+- The search box filters them too; the rail shows the first 20, and the Groups view keeps the full list.
+
 ## 0.18.7 — 2026-11-25
 
 - **Making a group chat no longer asks for a folder.** The **Folder** field and its **Choose folder…** button are gone
