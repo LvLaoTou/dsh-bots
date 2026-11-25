@@ -5,6 +5,13 @@ English | [简体中文](CHANGELOG.zh-CN.md)
 What changed in each version of Bots, newest first, and what to do after upgrading. Bots tells you when a new
 version is out ([Updates](README.md#updates)).
 
+## 0.18.6 — 2026-11-25
+
+- **A group chat key goes up to 50 characters.** The old 2–6 came from the key doubling as a card prefix, and the
+  previous release's 30 was still tight; it is 50 letters or digits now, and the form's input allows it. Longer input
+  is trimmed to 50 rather than refused.
+- The key still numbers cards (`MILKTEA-12`) and names the bank (`bots::chat::KEY`), so both follow the longer key.
+
 ## 0.18.5 — 2026-11-25
 
 - **One name: group chat.** The panel called the same thing a project and a project group; it is a **group chat**

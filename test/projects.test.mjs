@@ -13,7 +13,7 @@ test('a key is cleaned to capitals and digits, and suggested from a name', () =>
   assert.equal(cleanKey('2fast'), 'FAST', 'a key starts with a letter');
   // A key is an English word now, not a three-letter prefix (Bots 0.18.5).
   assert.equal(cleanKey('abcdefgh'), 'ABCDEFGH');
-  assert.equal(cleanKey('x'.repeat(40)).length, 30, 'up to 30 characters');
+  assert.equal(cleanKey('x'.repeat(80)).length, 50, 'up to 50 characters (Bots 0.18.6)');
   assert.equal(suggestKey('One-person company'), 'OPC', 'initials of several words');
   assert.equal(suggestKey('Website'), 'WEBSITE', 'one English word: the word itself, not a prefix');
   assert.equal(suggestKey('内容工作室'), 'NRGZS');
@@ -24,6 +24,20 @@ test('a key is cleaned to capitals and digits, and suggested from a name', () =>
   assert.match('MILKTEA-12', CARD_REF_RE, 'a word key numbers cards the same way');
   assert.doesNotMatch('OPC-0', CARD_REF_RE);
   assert.doesNotMatch('opc-12', CARD_REF_RE);
+});
+
+test('a key may be 50 characters long, and a longer one is trimmed to it', () => {
+  const projects = createProjects(dirOf(), { home: dirOf() });
+  const long = `A${'B'.repeat(49)}`;
+  const p = projects.create({ name: 'Long one', key: long });
+  assert.equal(p.key, long);
+  assert.equal(p.key.length, 50);
+  // It still numbers its cards the same way.
+  const { project } = { project: p };
+  assert.match(`${project.key}-7`, CARD_REF_RE);
+  // Days of a 6-letter prefix are over: 51 characters are trimmed, not refused.
+  const other = `C${'D'.repeat(50)}`;
+  assert.equal(projects.create({ name: 'Trimmed', key: other }).key, `C${'D'.repeat(49)}`);
 });
 
 test('a folder is a full path to a folder that exists; ~ is the home folder', () => {

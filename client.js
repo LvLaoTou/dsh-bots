@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
     const NS = 'bots';
     const PANEL_ID = 'bots';
     /** The Bots this page is (package.json): the Host says which one it runs, and a stale Host is pointed out. */
-    const BOTS_VERSION = '0.18.5';
+    const BOTS_VERSION = '0.18.6';
     /** How close to a new topic Harness closing the panel counts as caused by it (it archived the conversation behind). */
     const ROTATE_WINDOW_MS = 3000;
     const R = '/__dsh_bots/';
@@ -4015,7 +4015,7 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
               'div',
               { style: { display: 'flex', gap: 12, flexWrap: 'wrap' } },
               h(Field, { label: t('projectName'), style: { flex: '2 1 220px' } }, h(Input, { value: form.name, maxLength: 60, autoFocus: true, 'data-dsh-bots-project-name': true, onChange: set('name') })),
-              h(Field, { label: t('projectKey'), style: { flex: '1 1 120px' } }, h(Input, { value: form.key, maxLength: 6, mono: true, placeholder: t('projectKeyAuto'), 'data-dsh-bots-project-key': true, onChange: set('key') })),
+              h(Field, { label: t('projectKey'), style: { flex: '1 1 120px' } }, h(Input, { value: form.key, maxLength: 50, mono: true, placeholder: t('projectKeyAuto'), 'data-dsh-bots-project-key': true, onChange: set('key') })),
             ),
             h('div', { style: { fontSize: TINY, color: C.faint, marginTop: -8 } }, t('projectKeyHint')),
             h(
@@ -10639,7 +10639,7 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         projectName: 'Name',
         projectKey: 'Key',
         projectKeyAuto: 'From the name',
-        projectKeyHint: 'Cards are numbered with it: OPC-1, OPC-2… 2–6 capital letters or digits.',
+        projectKeyHint: 'The group chat\'s id, and the name of its memory bank: up to 50 letters or digits (like MILKTEA). Cards are numbered with it: MILKTEA-1.',
         projectDir: 'Folder',
         projectDirHint: 'Its tasks work in this folder (Harness adds it as a workspace). Leave it empty for the Bots workspace.',
         projectNoDir: 'No folder: its tasks work in the Bots workspace',
@@ -11767,7 +11767,7 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         projectName: '名称',
         projectKey: 'Key',
         projectKeyAuto: '按名称生成',
-        projectKeyHint: '群聊的标识，也是记忆 bank 的名字：一个英文单词，2–30 位字母、数字或短横线（如 milktea）。',
+        projectKeyHint: '群聊的标识，也是记忆 bank 的名字：一个英文单词，最多 50 位字母或数字（如 milktea）。',
         projectDir: '目录',
         projectDirHint: '群聊的任务在这个目录里工作。留空会自动分配一个（每个群聊一个，记忆也绑在它上面）。',
         projectNoDir: '自动分配一个目录',
