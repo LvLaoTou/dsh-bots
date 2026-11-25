@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
     const NS = 'bots';
     const PANEL_ID = 'bots';
     /** The Bots this page is (package.json): the Host says which one it runs, and a stale Host is pointed out. */
-    const BOTS_VERSION = '0.19.0';
+    const BOTS_VERSION = '0.19.1';
     /** How close to a new topic Harness closing the panel counts as caused by it (it archived the conversation behind). */
     const ROTATE_WINDOW_MS = 3000;
     const R = '/__dsh_bots/';
@@ -2896,7 +2896,7 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
       );
     }
 
-    function ChatTab({ t, bot, env, toast, project = '', projectKey = '' }) {
+    function ChatTab({ t, bot, env, toast, project = '', projectKey = '', cast = [], onAddress }) {
       // Inside a project group, this chat is that project's conversation with the bot (Bots 0.17.5).
       const { items: listed, threads, failed, reload } = useMessages(bot.id, true, '', project);
       const [text, setText] = useState('');
@@ -3000,6 +3000,15 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
       const send = () => {
         const body = text.trim();
         if (!canSend) return;
+        // Naming another member with @ sends it to that one instead (Bots 0.19.1): in a group chat the
+        // person should not have to switch to that member's conversation first.
+        const named = cast.find((m) => m && m.id !== bot.id && m.handle && new RegExp(`(^|[^\\w@])@${String(m.handle).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`, 'i').test(body));
+        if (named && onAddress) {
+          setText('');
+          att.clear();
+          void onAddress(named, body).then(() => thread.stick());
+          return;
+        }
         const imgs = att.images;
         const to = quote?.id ?? '';
         setText('');
@@ -3089,6 +3098,10 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
                 'div',
                 { style: { display: 'flex', alignItems: 'center', gap: 6, marginTop: 7, fontSize: TINY, color: C.faint, flexWrap: 'wrap' } },
                 h('span', null, t('composerHint')),
+                // Inside a group, naming someone sends it to that member (Bots 0.19.1).
+                cast.length
+                  ? h('span', { 'data-dsh-bots-mention-hint': cast.length, style: { color: C.faint } }, t('mentionHint', { handles: cast.map((m) => `@${m.handle}`).join(' ') }))
+                  : null,
                 h('span', { style: { flex: 1 } }),
                 bot.topic ? h('span', { 'data-dsh-bots-topic': true, title: t('topicNow', { when: fmtAgo(t, bot.topic.startedAt), n: bot.topic.tasks, ctx: fmtNum(bot.topic.context) }) }, t('topicShort', { n: bot.topic.tasks, ctx: fmtNum(bot.topic.context) })) : null,
                 h('button', { type: 'button', className: 'dshb-link', title: t('newTopicHint'), disabled: running || topicBusy || !bot.sessionId, onClick: startTopic, 'data-dsh-bots-new-topic': 'chat', style: { fontSize: TINY, display: 'inline-flex', alignItems: 'center', gap: 4, opacity: running || !bot.sessionId ? 0.5 : 1 } }, Icon.plus(11), t('newTopic')),
@@ -8332,6 +8345,16 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
       const [pane, setPane] = useState('chat');
       const view = data?.project;
       const members = Array.isArray(data?.bots) ? data.bots : [];
+      // Naming another member with @ sends the message to that one, and the page follows it there
+      // (Bots 0.19.1): in a group chat you should not have to open that member's conversation first.
+      const sendToMember = (to, body) =>
+        postJson('send', { to: to.id, text: body, project }).then((r) => {
+          if (r?.ok) {
+            setWithId(to.id);
+            void reload();
+          } else toast(r?.reason || t('sendFailed'), 'error');
+          return r;
+        });
       // The first member (the project's lead) is who the page opens on.
       const member = members.find((m) => m.id === withId) ?? members[0];
       const cast = Array.isArray(view?.members) ? view.members : [];
@@ -8387,7 +8410,7 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
                 h(
                   'div',
                   { style: { flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' } },
-                  member ? h('div', { 'data-dsh-bots-project-chat': member.id, style: { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' } }, h(ChatTab, { key: member.id, t, bot: { id: member.id, name: member.name, handle: member.handle, avatar: member.avatar }, env, toast, project, projectKey: view?.key ?? '' })) : null,
+                  member ? h('div', { 'data-dsh-bots-project-chat': member.id, style: { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' } }, h(ChatTab, { key: member.id, t, bot: { id: member.id, name: member.name, handle: member.handle, avatar: member.avatar }, env, toast, project, projectKey: view?.key ?? '', cast: members.map((m) => ({ id: m.id, handle: m.handle, name: m.name })), onAddress: sendToMember })) : null,
                 ),
               ),
       );
@@ -10026,6 +10049,7 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         act_tool: 'Using {detail}',
         composer: 'Message @{handle}',
         composerHint: 'Enter to send · Shift+Enter for a new line · paste or drop images',
+        mentionHint: 'Name someone with @: {handles}',
         attachImage: 'Attach images (or paste / drop them here)',
         removeImage: 'Remove this image',
         imageFailed: 'The image could not be stored',
@@ -11168,6 +11192,7 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         composer: '给 @{handle} 发消息',
         composerHint: 'Enter 发送 · Shift+Enter 换行 · 可粘贴或拖入图片',
         attachImage: '添加图片（也可以直接粘贴、拖进来）',
+        mentionHint: '点名用 @：{handles}',
         removeImage: '移除这张图片',
         imageFailed: '图片没能保存',
         imageRefused: '无法发送',

@@ -3930,7 +3930,10 @@ export function apply(ctx, config, deps = {}) {
           const topic = isPanelThread(thread) ? panelTopicOf(thread) : '';
           // Marked as sent nowhere while a chat of the turn still waits for its answer.
           const choices = plan.mode === 'choose' && unanswered.length ? plan.origins.filter((o) => o.kind !== 'panel').map((o) => o.threadKey) : [];
-          const logged = store.log({ from: bot.id, to: 'user', chat: bot.id, text, kind: 'reply', ...(sent && sent.kind !== 'panel' ? { via: sent.kind } : {}), ...(thread ? { thread } : {}), ...(topic ? { topic } : {}), ...(choices.length ? { notSent: true, choices } : {}) });
+          // The reply belongs to the project whose conversation the turn ran in (Bots 0.19.1): without it
+          // the answer landed in the bot's own chat, which is not where the person asked.
+          const inProject = projectOfSession(session.id);
+          const logged = store.log({ from: bot.id, to: 'user', chat: bot.id, text, kind: 'reply', ...(inProject ? { project: inProject.id } : {}), ...(sent && sent.kind !== 'panel' ? { via: sent.kind } : {}), ...(thread ? { thread } : {}), ...(topic ? { topic } : {}), ...(choices.length ? { notSent: true, choices } : {}) });
           if (home) {
             discussions.anchor(messageRef(logged.id), at);
             if (sent && sent.kind !== 'panel') discussions.anchor(sent.threadKey, at);

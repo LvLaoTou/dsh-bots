@@ -2091,6 +2091,23 @@ function boardBoot(config) {
 }
 const promptOf = (agent) => [...agent.sections.values()].map((s) => s.text?.()).join('\n');
 
+test('0.19.1: a reply in a group chat is filed under the group, not in the bot\'s own chat', async (t) => {
+  const { api, h, dispose } = boardBoot();
+  t.after(dispose);
+  const forge = api.store.find('forge');
+  const { project } = await api.request('POST', '/projects/save', { project: { name: 'Group work', key: 'GRP', members: [forge.id] } });
+  const opened = await api.request('POST', '/projects/session', { id: project.id, bot: forge.id });
+  assert.equal(opened.ok, true);
+  await api.request('POST', '/send', { to: forge.id, text: 'Plan the week', project: project.id });
+  await h.step(opened.sessionId, { answer: 'Here is the plan.' });
+  // Both sides of the exchange carry the group, which is what its chat reads.
+  const group = api.store.messages({ project: project.id });
+  assert.deepEqual(group.map((m) => [m.from, m.project]), [['user', project.id], [forge.id, project.id]]);
+  assert.equal(group[1].text, 'Here is the plan.');
+  // The bot's own chat does not hold the answer: that is what made it look like a workspace conversation.
+  assert.ok(!api.store.messages({ bot: forge.id }).some((m) => m.text === 'Here is the plan.'));
+});
+
 test('workdirs: a team lead opens a projectless task in the member’s own workspace', async (t) => {
   const root = mkdtempSync(join(tmpdir(), 'bots-workdirs-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));

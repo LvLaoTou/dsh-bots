@@ -371,6 +371,20 @@ function mockFetch(posts = []) {
       return view ? { ok: true, json: async () => view } : { ok: false, status: 404, json: async () => null };
     }
     if (path.startsWith('/__dsh_bots/needs')) return { ok: true, json: async () => ({ items: NEEDS, next_offset: null }) };
+    // A group chat's page (Bots 0.17.5): its cast, which is also who `@` can name (Bots 0.19.1).
+    if (path.startsWith('/__dsh_bots/projects/group')) {
+      return {
+        ok: true,
+        json: async () => ({
+          ok: true,
+          project: PROJECTS[0],
+          bots: [
+            { id: 'bot-a', name: 'Ada', handle: 'ada', avatar: { kind: 'initials', color: '#7c5cff' }, lead: true, started: true },
+            { id: 'bot-b', name: 'Bob', handle: 'bob', avatar: { kind: 'initials', color: '#3b82f6' }, lead: false, started: true },
+          ],
+        }),
+      };
+    }
     if (path.startsWith('/__dsh_bots/projects')) return { ok: true, json: async () => ({ items: PROJECTS }) };
     if (path.startsWith('/__dsh_bots/tickets/')) {
       const view = ticketView(decodeURIComponent(path.slice('/__dsh_bots/tickets/'.length).split('?')[0]));
@@ -3346,9 +3360,9 @@ test('threads: a Host that runs another Bots than this page says to restart Harn
   const stale = await threadsChat({ state: { botsVersion: '0.9.0' } });
   const [banner] = findAll(stale.tree, (n) => n.props['data-dsh-bots-version-stale'] !== undefined);
   assert.equal(banner?.props['data-dsh-bots-version-stale'], '0.9.0');
-  assert.match(collect(banner).join(' '), /Harness still runs Bots 0\.9\.0; this page is 0\.19\.0\. Quit and reopen Harness/);
+  assert.match(collect(banner).join(' '), /Harness still runs Bots 0\.9\.0; this page is 0\.19\.1\. Quit and reopen Harness/);
   stale.hooks.runCleanups();
-  for (const state of [{ botsVersion: '0.19.0' }, { version: 7 }, {}]) {
+  for (const state of [{ botsVersion: '0.19.1' }, { version: 7 }, {}]) {
     const v = await threadsChat({ state });
     assert.equal(findAll(v.tree, (n) => n.props['data-dsh-bots-version-stale'] !== undefined).length, 0, JSON.stringify(state));
     v.hooks.runCleanups();
@@ -3520,6 +3534,30 @@ test('0.19: a member becomes lead by its switch, and the lead goes first', async
   click(v.tree, 'data-dsh-bots-project-save');
   await v.rerender();
   assert.deepEqual(v.posts.filter((p) => p.path.endsWith('/projects/save')).at(-1).body.project.members, ['bot-b', 'bot-a']);
+  v.hooks.runCleanups();
+});
+
+test('0.19.1: naming a member with @ in a group chat sends it to that member, and the page follows', async () => {
+  const v = await openView('data-dsh-bots-projects-entry');
+  click(v.tree, 'data-dsh-bots-rail-chat', 'pjopc00001');
+  await v.rerender();
+  // The page opens on the lead.
+  assert.equal(findAll(v.tree, (n) => n.props['data-dsh-bots-project-chat'])[0].props['data-dsh-bots-project-chat'], 'bot-a');
+  const area = findAll(v.tree, (n) => n.type === 'textarea')[0];
+  area.props.onChange({ target: { value: '@bob please write the copy' } });
+  await v.rerender();
+  click(v.tree, 'data-dsh-bots-send');
+  await v.rerender();
+  assert.deepEqual(v.posts.find((p) => p.path.endsWith('/send')).body, { to: 'bot-b', text: '@bob please write the copy', project: 'pjopc00001' });
+  // It moved to that member's conversation, which is where the answer comes back.
+  assert.equal(findAll(v.tree, (n) => n.props['data-dsh-bots-project-chat'])[0].props['data-dsh-bots-project-chat'], 'bot-b');
+  // Without a name it stays with the member whose conversation is open.
+  const again = findAll(v.tree, (n) => n.type === 'textarea')[0];
+  again.props.onChange({ target: { value: 'and the title' } });
+  await v.rerender();
+  click(v.tree, 'data-dsh-bots-send');
+  await v.rerender();
+  assert.deepEqual(v.posts.filter((p) => p.path.endsWith('/send')).at(-1).body, { to: 'bot-b', text: 'and the title', project: 'pjopc00001' });
   v.hooks.runCleanups();
 });
 

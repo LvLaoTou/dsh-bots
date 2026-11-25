@@ -5,6 +5,15 @@ English | [简体中文](CHANGELOG.zh-CN.md)
 What changed in each version of Bots, newest first, and what to do after upgrading. Bots tells you when a new
 version is out ([Updates](README.md#updates)).
 
+## 0.19.1 — 2026-11-25
+
+- **Fixed: a group chat never received the answer.** The bot's reply was logged without its `project`, so it landed in
+  that bot's own workspace conversation and the group kept only what the person said. A reply now carries the group it
+  was produced in.
+- **A member can be named with `@` inside a group chat.** `@someone` sends that message to that member and the page
+  follows to their conversation; with no name it goes to the member whose conversation is open. The line under the
+  composer lists who can be named.
+
 ## 0.19.0 — 2026-11-25
 
 - **A group chat's lead can be picked now.** Under the cast picker each member has a **Lead** switch: turn it on and
