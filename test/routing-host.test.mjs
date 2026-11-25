@@ -2130,7 +2130,9 @@ test('workdirs: cwd follows the selected folder when workspace registration fail
   const project = (await api.request('POST', '/projects/save', { project: { name: 'Release', dir: folder } })).project;
   await checkTask('@forge', folder, project.id);
   const folderless = (await api.request('POST', '/projects/save', { project: { name: 'Planning' } })).project;
-  await checkTask('@forge', shared, folderless.id);
+  // A group chat without a folder is given one of its own (Bots 0.18.5), so its memory has a folder to bind to.
+  assert.ok(folderless.dir.endsWith(join('groups', folderless.key)), folderless.dir);
+  await checkTask('@forge', folderless.dir, folderless.id);
   rmSync(memberDir, { recursive: true });
   await checkTask('@forge', shared);
   writeFileSync(memberDir, 'a file');
@@ -2160,7 +2162,7 @@ test('board: projects are kept through their routes; a card filed for the dispat
   const { items } = await api.request('GET', `/messages?bot=${env.atlas.id}`);
   assert.deepEqual(items.at(-1).card, { id: card.id, title: 'Landing page for 2.4', ref: 'OPC-1' });
   // The dispatcher knows the projects, and hands the card out without naming it: its task counts toward the card.
-  assert.match(promptOf(router), /## Projects\n[^]*- OPC — One-person company: Ship small, weekly\.\n/);
+  assert.match(promptOf(router), /## Group chats\n[^]*- OPC — One-person company: Ship small, weekly\.\n/);
   const [r] = await h.step(sid, { calls: [{ name: 'bot_send_message', args: { to: '@forge', text: 'Build the 2.4 landing page: hero, pricing, FAQ.' } }] });
   assert.equal(r.need.id, card.id);
   assert.match(r.text, /It counts toward need n[a-z0-9]{8} \(card OPC-1\) \("Landing page for 2\.4"\)\.$/);
@@ -2239,7 +2241,7 @@ test('board: To do waits for the person; start, done, save and moving between pr
   const env = boardBoot();
   const { h, api, call, folder } = env;
   const { project: opc } = await api.request('POST', '/projects/save', { project: { name: 'One-person company', key: 'OPC' } });
-  const { project: web } = await api.request('POST', '/projects/save', { project: { name: 'Website', dir: folder } });
+  const { project: web } = await api.request('POST', '/projects/save', { project: { name: 'Website', key: 'WEB', dir: folder } });
   const later = await api.request('POST', '/needs/create', { title: 'Pricing page', projectId: 'opc', start: false });
   assert.deepEqual([later.ref, later.status], ['OPC-1', 'todo']);
   assert.equal(api.store.find('atlas').sessionId, null, 'nothing reached the dispatcher');
@@ -2367,7 +2369,7 @@ test('board: a card that fails to start again is left as it was; a removed proje
   const v = await api.request('GET', `/needs/${card.id}`);
   assert.deepEqual([v.status, v.closed?.by], ['stopped', 'user']);
   // A project removed while one of its tasks waits for a slot: that task works without it.
-  const { project } = await api.request('POST', '/projects/save', { project: { name: 'Website', dir: folder } });
+  const { project } = await api.request('POST', '/projects/save', { project: { name: 'Website', key: 'WEB', dir: folder } });
   // Every worker slot taken.
   api.slots.setMax(1);
   api.slots.acquire('tbusy0000');
@@ -2382,7 +2384,7 @@ test('board: a card that fails to start again is left as it was; a removed proje
 test('board: a task whose project folder is gone fails to start and says why', async () => {
   const env = boardBoot();
   const { api, folder } = env;
-  const { project } = await api.request('POST', '/projects/save', { project: { name: 'Website', dir: folder } });
+  const { project } = await api.request('POST', '/projects/save', { project: { name: 'Website', key: 'WEB', dir: folder } });
   rmSync(folder, { recursive: true });
   const card = await api.request('POST', '/needs/create', { title: 'Hero image', projectId: project.id, assignee: '@forge' });
   assert.equal(card.status, 'failed');

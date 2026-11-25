@@ -6390,7 +6390,18 @@ export function apply(ctx, config, deps = {}) {
         const input = body?.project && typeof body.project === 'object' ? body.project : {};
         const fields = Object.fromEntries(['name', 'key', 'brief', 'dir', 'repo', 'members'].filter((k) => input[k] !== undefined).map((k) => [k, input[k]]));
         // Prompts read the projects as they are assembled: the dispatcher and the project's tasks see the change at their next step.
-        const p = input.id ? projects.update(input.id, fields) : projects.create(fields);
+        let p = input.id ? projects.update(input.id, fields) : projects.create(fields);
+        // A group chat gets a folder of its own when none is given (Bots 0.18.5): its conversations run
+        // there, which is also how its memory bank is bound — so nobody has to pick a folder for it.
+        if (!p.dir) {
+          try {
+            const folder = join(dir, 'groups', p.key);
+            mkdirSync(folder, { recursive: true });
+            p = projects.update(p.id, { dir: folder });
+          } catch (error) {
+            ctx.logger?.warn?.(`bots: group folder for ${p.key}: ${error?.message ?? error}`);
+          }
+        }
         return { ok: true, project: projectView(p) };
       },
     },

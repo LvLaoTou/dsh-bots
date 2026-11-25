@@ -5,6 +5,16 @@ English | [简体中文](CHANGELOG.zh-CN.md)
 What changed in each version of Bots, newest first, and what to do after upgrading. Bots tells you when a new
 version is out ([Updates](README.md#updates)).
 
+## 0.18.5 — 2026-11-25
+
+- **One name: group chat.** The panel called the same thing a project and a project group; it is a **group chat**
+  everywhere now — board, rail, form, charter and memory text alike.
+- **The key is an English word.** No more "numbering prefix": 2–30 characters instead of 2–6, and a one-word name
+  suggests the word itself (Milktea → MILKTEA) instead of its first three letters. Cards still read `KEY-12`.
+- **The bank is made from the Key, and no folder has to be bound.** A new group chat binds `bots::chat::KEY` by
+  default, and every group gets a folder of its own (`<bots cache>/groups/<KEY>`) that the bank is bound to — the
+  person never picks one. Setting a folder of your own is still possible.
+
 ## 0.18.4 — 2026-11-25
 
 - **A group can be bound to its own memory when you make or edit it.** The group form gained a **Memory** field:

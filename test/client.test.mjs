@@ -3342,9 +3342,9 @@ test('threads: a Host that runs another Bots than this page says to restart Harn
   const stale = await threadsChat({ state: { botsVersion: '0.9.0' } });
   const [banner] = findAll(stale.tree, (n) => n.props['data-dsh-bots-version-stale'] !== undefined);
   assert.equal(banner?.props['data-dsh-bots-version-stale'], '0.9.0');
-  assert.match(collect(banner).join(' '), /Harness still runs Bots 0\.9\.0; this page is 0\.18\.4\. Quit and reopen Harness/);
+  assert.match(collect(banner).join(' '), /Harness still runs Bots 0\.9\.0; this page is 0\.18\.5\. Quit and reopen Harness/);
   stale.hooks.runCleanups();
-  for (const state of [{ botsVersion: '0.18.4' }, { version: 7 }, {}]) {
+  for (const state of [{ botsVersion: '0.18.5' }, { version: 7 }, {}]) {
     const v = await threadsChat({ state });
     assert.equal(findAll(v.tree, (n) => n.props['data-dsh-bots-version-stale'] !== undefined).length, 0, JSON.stringify(state));
     v.hooks.runCleanups();
@@ -3608,7 +3608,7 @@ test('0.18.4: a group can be bound to a Hindsight bank when it is made or edited
   }
 });
 
-test('0.18.4: memory waits for a folder, and a Host without the manager shows no memory section', async () => {
+test('0.18.5: memory needs no folder from the person, and a Host without the manager shows no memory section', async () => {
   const v = await openView('data-dsh-bots-projects-entry');
   const inner = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
@@ -3621,11 +3621,10 @@ test('0.18.4: memory waits for a folder, and a Host without the manager shows no
   try {
     click(v.tree, 'data-dsh-bots-project-list-edit', 'pjopc00001');
     await v.rerender();
-    // Clearing the folder takes the binding away with it: a bank is bound by folder.
+    // Clearing the folder leaves the memory field usable: the group gets a folder of its own.
     findAll(v.tree, (n) => n.props['data-dsh-bots-project-dir'])[0].props.onChange({ target: { value: '' } });
     await v.rerender();
-    assert.equal(findAll(v.tree, (n) => n.props['data-dsh-bots-project-bank'])[0].props.disabled, true);
-    assert.match(collect(v.tree).join(' '), /a bank is bound by folder/);
+    assert.notEqual(findAll(v.tree, (n) => n.props['data-dsh-bots-project-bank'])[0].props.disabled, true);
   } finally {
     globalThis.fetch = inner;
     v.hooks.runCleanups();

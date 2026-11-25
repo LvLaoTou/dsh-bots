@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
     const NS = 'bots';
     const PANEL_ID = 'bots';
     /** The Bots this page is (package.json): the Host says which one it runs, and a stale Host is pointed out. */
-    const BOTS_VERSION = '0.18.4';
+    const BOTS_VERSION = '0.18.5';
     /** How close to a new topic Harness closing the panel counts as caused by it (it archived the conversation behind). */
     const ROTATE_WINDOW_MS = 3000;
     const R = '/__dsh_bots/';
@@ -3938,14 +3938,10 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
       const applyMemory = async (saved) => {
         if (!hs || hs.unavailable || !saved || !saved.key) return;
         const before = hs.bound || '';
-        const want = hs.choice === null ? before : hs.choice;
+        const want = hs.choice === null ? (start?.id ? before : NEW_BANK) : hs.choice;
         if (want === before) return;
-        if (want && !saved.dir) {
-          toast(t('hindsightNeedsDir'), 'error');
-          return;
-        }
         const r = want
-          ? await hsPost('bindProject', { projectKey: saved.key, bankId: want === NEW_BANK ? '' : want })
+          ? await hsPost('bindProject', { projectKey: saved.key, bankId: want === NEW_BANK ? 'bots::chat::' + saved.key : want })
           : await hsPost('unbindProject', { projectKey: saved.key });
         if (r && r.ok === false) {
           toast(t('hindsightFailed', { reason: r.message || '?' }), 'error');
@@ -4006,9 +4002,11 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
           } else toast(r?.reason || t('actionFailed'), 'error');
         });
       // What the memory select shows: the person's pick, else whatever is bound now.
-      const hsChoice = !hs || hs.unavailable ? '' : hs.choice === null ? hs.bound || '' : hs.choice;
+      const isNewGroup = !start?.id;
+      // A new group is bound as its Key names it (Bots 0.18.5); an existing one shows what it has.
+      const hsChoice = !hs || hs.unavailable ? '' : hs.choice === null ? (isNewGroup ? NEW_BANK : hs.bound || '') : hs.choice;
       const keyNow = String(form.key || '').trim().toUpperCase();
-      const newBankName = keyNow ? `bots::project::${keyNow}` : 'bots::project::…';
+      const newBankName = keyNow ? 'bots::chat::' + keyNow : 'bots::chat::…';
       const body = editing
         ? h(
             'div',
@@ -4076,7 +4074,6 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
                       {
                         className: 'dshb-input',
                         value: hsChoice,
-                        disabled: !String(form.dir || '').trim() && !hs.bound,
                         'data-dsh-bots-project-bank': true,
                         onChange: (e) => setHs((s) => (s ? { ...s, choice: e.target.value } : s)),
                       },
@@ -4087,7 +4084,7 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
                     h(
                       'div',
                       { 'data-dsh-bots-project-bank-state': hs.bound ? 'bound' : 'none', style: { fontSize: TINY, color: C.faint } },
-                      !String(form.dir || '').trim() ? t('hindsightNeedsDir') : hs.bound ? t('hindsightBound', { bank: hs.bound }) : t('hindsightUnbound'),
+                      hs.bound ? t('hindsightBound', { bank: hs.bound }) : t('hindsightUnbound'),
                     ),
                   ),
                 )
@@ -10634,10 +10631,10 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         afterRemove: 'Do not wait for it',
         afterThenDispatcher: 'Then to {name} (the dispatcher)',
         afterThenBot: 'Then to {name}',
-        projects: 'Projects',
-        projectsIntro: 'A project is a standing cast for one piece of work: add its bots, and each of them works here in a conversation of its own, reading this project\'s memory only. File cards under it to number them (OPC-12).',
+        projects: 'Group chats',
+        projectsIntro: 'A group chat is a standing cast for one piece of work: add its bots, and each of them works here in a conversation of its own, reading this project\'s memory only. File cards under it to number them (OPC-12).',
         projectsEmpty: 'No projects yet.',
-        projectNew: 'New project',
+        projectNew: 'New group chat',
         projectEditTitle: 'Edit {key}',
         projectName: 'Name',
         projectKey: 'Key',
@@ -10653,13 +10650,13 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         projectNoMembers: 'No bots yet: this project has no cast',
         back: 'Back',
         projectsNavHint: 'Talk to its bots, each in its own conversation',
-        projectGroup: 'Project group',
+        projectGroup: 'Group chat',
         projectGroupSub: 'Each bot works here in a conversation of its own, reading this project\'s memory only.',
         navProjects: 'Groups',
-        projectGroupsTitle: 'Project groups',
-        projectGroupNew: 'New project group',
-        projectGroupNoProjects: 'No project groups yet.',
-        projectGroupNoProjectsHint: 'A project group is where a standing cast works on one thing: make one, add the bots that work on it, and write its charter. Each bot then talks to you here in a conversation that reads this project\'s memory only.',
+        projectGroupsTitle: 'Group chats',
+        projectGroupNew: 'New group chat',
+        projectGroupNoProjects: 'No group chats yet.',
+        projectGroupNoProjectsHint: 'A group chat is where a standing cast works on one thing: make one, add the bots that work on it, and write its charter. Each bot then talks to you here in a conversation that reads this project\'s memory only.',
         projectGroupEmptyTitle: 'No bots in this project yet',
         projectGroupEmptyBody: 'Go back to the list and edit this group to add its cast. Each bot then gets a conversation here that reads this project\'s memory only.',
         projectPaneChat: 'Chat',
@@ -10671,9 +10668,9 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         charterRemoved: 'Charter removed: this project has none now.',
         charterDirty: 'Unsaved changes.',
         hindsightLabel: 'Memory',
-        hindsightHint: 'Each group can keep its own Hindsight bank. It is bound by the folder above, so set one first; every conversation of this group then writes there, and other groups read nothing of it.',
+        hindsightHint: 'Each group chat keeps its own Hindsight bank, named from its Key (bots::chat::KEY). Create one here or pick an existing bank; the folder it is bound by is handled for it.',
         hindsightNone: 'Not bound',
-        hindsightNew: 'Create a bank for this project ({bank})',
+        hindsightNew: 'Create a bank from the Key ({bank})',
         hindsightBound: 'Bound to {bank}',
         hindsightUnbound: 'Not bound to any bank yet.',
         hindsightNeedsDir: 'Set the folder above to bind memory: a bank is bound by folder.',
@@ -11709,7 +11706,7 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         boardDropStart: '放下即开始',
         boardDropDone: '放下即完成',
         allProjects: '全部',
-        noProject: '不归属项目',
+        noProject: '不归属群聊',
         viaBoard: '看板',
         newCard: '新建卡片',
         cardTitle: '标题',
@@ -11718,7 +11715,7 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         cardDescriptionHint: '细节、链接、做到什么程度算完成。接手的 bot 会全部读到。',
         cardDescriptionPlaceholder: '可选',
         cardNoDescription: '没有描述。',
-        cardProject: '项目',
+        cardProject: '群聊',
         cardAssignee: '交给谁',
         cardToDispatcher: '{name}（由调度者分派）',
         cardDispatcherHint: '调度者会在它的聊天里收到这张卡，再分派给合适的同事；回复显示在聊天里，也显示在卡片上。',
@@ -11740,12 +11737,12 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         taskForRequest: '所属需求',
         // GitHub Issues（Bots 0.14）
         githubWatching: '关注中',
-        githubHow: '打开的 issue 一打上标签 {label}，就会变成看板上的一张卡，归到填了这个仓库的项目下；调度员接手后，回复以评论的形式回到 issue。',
+        githubHow: '打开的 issue 一打上标签 {label}，就会变成看板上的一张卡，归到填了这个仓库的群聊下；调度员接手后，回复以评论的形式回到 issue。',
         githubPrivate: '只有仓库的 owner、成员和协作者能让团队开工：issue 要是他们写的或者是他们打的标签，评论要是他们写的。其他人的一律忽略，不做回复。',
         githubIgnored: '已忽略 {n} 条不是仓库 owner、成员或协作者的 issue 或评论（最近一位：{name}）。',
         channelHowGithub: '把它加给调度员，填上令牌和要关注的仓库。不用配对：给 issue 打上标签就是交给团队。',
         projectRepo: 'GitHub 仓库',
-        projectRepoHint: '这个仓库的 issue（GitHub Issues 应用）会归到这个项目下。写 owner/repo 或仓库地址（GitHub Enterprise 也行）；不需要就留空。',
+        projectRepoHint: '这个仓库的 issue（GitHub Issues 应用）会归到这个群聊下。写 owner/repo 或仓库地址（GitHub Enterprise 也行）；不需要就留空。',
         projectRepoPlaceholder: 'owner/repo 或 https://github.example.com/owner/repo',
         // 等别的卡做完再开始（Bots 0.13）
         cardAfter: '在这之后开始',
@@ -11762,60 +11759,60 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         afterRemove: '不等它了',
         afterThenDispatcher: '然后交给 {name}（调度者）',
         afterThenBot: '然后交给 {name}',
-        projects: '项目',
-        projectsIntro: '项目是为一件事常设的一组 bot：把 bot 加进来，每个都在这个项目里有自己的会话，只读这个项目的记忆。卡片归到项目下就按项目编号（如 OPC-12）。',
-        projectsEmpty: '还没有项目。',
-        projectNew: '新建项目',
+        projects: '群聊',
+        projectsIntro: '群聊是一拨固定的 bot 一起做一件事的地方：把 bot 加进来，每个都在这里有自己会话，只读这个群聊的记忆。卡片归到群聊下就按它的 Key 编号（如 milktea-12）。',
+        projectsEmpty: '还没有群聊。',
+        projectNew: '新建群聊',
         projectEditTitle: '编辑 {key}',
         projectName: '名称',
-        projectKey: '编号前缀',
+        projectKey: 'Key',
         projectKeyAuto: '按名称生成',
-        projectKeyHint: '卡片用它编号：OPC-1、OPC-2……2 到 6 位大写字母或数字。',
+        projectKeyHint: '群聊的标识，也是记忆 bank 的名字：一个英文单词，2–30 位字母、数字或短横线（如 milktea）。',
         projectDir: '目录',
-        projectDirHint: '项目的任务在这个目录里工作（Harness 会把它加为工作区）。留空则用 Bots 工作区。',
-        projectNoDir: '没有目录：任务在 Bots 工作区里工作',
-        projectMembers: '项目成员',
-        projectMembersHint: '在这个项目里干活的 bot。每个在这里有一个自己的会话，只读这个项目的记忆，所以同一个 bot 不会把两个项目混在一起。第一个选的负责这个项目。',
-        projectNoBots: '先建一个 bot：项目是由 bot 组成的。',
+        projectDirHint: '群聊的任务在这个目录里工作。留空会自动分配一个（每个群聊一个，记忆也绑在它上面）。',
+        projectNoDir: '自动分配一个目录',
+        projectMembers: '群聊成员',
+        projectMembersHint: '在这个群聊里干活的 bot。每个在这里有一个自己的会话，只读这个群聊的记忆，所以同一个 bot 不会把两个群聊混在一起。第一个选的负责这个群聊。',
+        projectNoBots: '先建一个 bot：群聊是由 bot 组成的。',
         projectMemberLead: '负责',
-        projectNoMembers: '还没有 bot：这个项目还没有成员',
+        projectNoMembers: '还没有 bot：这个群聊还没有成员',
         back: '返回',
-        projectsNavHint: '和项目里的 bot 说话，每个都有自己的会话',
-        projectGroup: '项目组',
-        projectGroupSub: '每个 bot 在这里有自己的会话，只读这个项目的记忆。',
-        navProjects: '项目组',
-        projectGroupsTitle: '项目组',
-        projectGroupNew: '新建项目组',
-        projectGroupNoProjects: '还没有项目组。',
-        projectGroupNoProjectsHint: '项目组是一拨固定的人一起做一件事的地方：建一个，把做这件事的 bot 加进去，写上它的章程。每个 bot 随后会在这里跟你说话，它读的只有这个项目的记忆。',
-        projectGroupEmptyTitle: '这个项目里还没有 bot',
-        projectGroupEmptyBody: '回到列表，编辑这个项目组加上成员。每个成员随后会在这里有一个会话，只读这个项目的记忆。',
+        projectsNavHint: '和群聊里的 bot 说话，每个都有自己的会话',
+        projectGroup: '群聊',
+        projectGroupSub: '每个 bot 在这里有自己的会话，只读这个群聊的记忆。',
+        navProjects: '群聊',
+        projectGroupsTitle: '群聊',
+        projectGroupNew: '新建群聊',
+        projectGroupNoProjects: '还没有群聊。',
+        projectGroupNoProjectsHint: '群聊是一拨固定的人一起做一件事的地方：建一个，把做这件事的 bot 加进去，写上它的章程。每个 bot 随后会在这里跟你说话，它读的只有这个群聊的记忆。',
+        projectGroupEmptyTitle: '这个群聊里还没有 bot',
+        projectGroupEmptyBody: '回到列表，编辑这个群聊加上成员。每个成员随后会在这里有一个会话，只读这个群聊的记忆。',
         projectPaneChat: '对话',
         charterTitle: '章程',
-        charterHint: '这是项目自己的 Markdown 文件：这个项目是什么、谁负责什么、大家怎么配合、记忆放在哪儿。项目的每个会话都会读到它，改了它就等于改了这件事的干法。项目在看板上设了目录的话，这份文件可以留在那个仓库里当 CHARTER.md。',
-        charterPlaceholder: '# 这个项目是什么、谁负责什么、怎么配合、记忆放到哪儿……',
+        charterHint: '这是群聊自己的 Markdown 文件：这个群聊是什么、谁负责什么、大家怎么配合、记忆放在哪儿。群聊的每个会话都会读到它，改了它就等于改了这件事的干法。群聊在看板上设了目录的话，这份文件可以留在那个仓库里当 CHARTER.md。',
+        charterPlaceholder: '# 这个群聊是什么、谁负责什么、怎么配合、记忆放到哪儿……',
         charterTemplate: '按成员生成',
         charterSaved: '章程已保存。',
-        charterRemoved: '章程已删除：这个项目现在没有章程。',
+        charterRemoved: '章程已删除：这个群聊现在没有章程。',
         charterDirty: '有改动还没保存。',
         hindsightLabel: '记忆',
-        hindsightHint: '每个群可以有自己的 Hindsight bank。它按上面的目录绑定，所以先设目录；设好后这个群的所有对话都写进去，别的群读不到。',
+        hindsightHint: '每个群聊有自己的 Hindsight bank，名字就是它的 Key（bots::chat::KEY）。可以在这里新建，也可以绑一个已有的；目录会自动分配，不用你管。',
         hindsightNone: '不绑定',
-        hindsightNew: '为这个项目新建 bank（{bank}）',
+        hindsightNew: '按 Key 新建 bank（{bank}）',
         hindsightBound: '已绑定 {bank}',
         hindsightUnbound: '还没有绑定任何 bank。',
         hindsightNeedsDir: '先在上面设好目录才能绑定记忆：bank 是按目录绑的。',
         hindsightSaved: '记忆已绑定到 {bank}。',
         hindsightCleared: '已解除记忆绑定。',
-        hindsightFailed: '项目已保存，但记忆没绑上：{reason}',
+        hindsightFailed: '群聊已保存，但记忆没绑上：{reason}',
         projectBrief: '简介',
-        projectBriefHint: '项目的每个任务都会读到：目标、约定、链接。',
-        projectBriefPlaceholder: '这个项目是什么，活怎么干',
-        projectSaved: '项目已保存。',
-        projectRemove: '删除项目',
+        projectBriefHint: '群聊的每个任务都会读到：目标、约定、链接。',
+        projectBriefPlaceholder: '这个群聊是什么，活怎么干',
+        projectSaved: '群聊已保存。',
+        projectRemove: '删除群聊',
         projectRemoveTitle: '删除「{name}」？',
-        projectRemoveBody: '它的卡片仍留在看板上，变成不归属项目，编号也会去掉。进行中的任务照常在原处继续。',
-        projectRemoved: '已删除。{n} 张卡片现在不归属任何项目。',
+        projectRemoveBody: '它的卡片仍留在看板上，变成不归属群聊，编号也会去掉。进行中的任务照常在原处继续。',
+        projectRemoved: '已删除。{n} 张卡片现在不归属任何群聊。',
         tasksSub: 'Bot 们接手的工作。每个任务在自己的会话里进行，几件事可以同时推进。',
         tasksNeeds: '需要你处理',
         tasksNeedsEmpty: '现在没有需要你处理的。',
@@ -12022,10 +12019,10 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         teamMemoryTitle: '团队记忆',
         teamMemoryHint: '{n} 条共享笔记 · 每日摘要',
         teamNotes: '共享笔记',
-        teamNotesHint: '每个 Bot 在任何工作里都会读到：关于你、你的业务、环境和约定。只和某个项目有关的事，记在下面的项目记忆里。',
-        projectMemory: '项目记忆',
-        projectMemoryHint: '只有这个项目的任务会读到：它的决定、约定、联系人、日期。删除项目时，它的记忆一起删掉。',
-        projectMemoryNone: '还没有项目。在看板上新建项目后，它的任务会把自己的笔记记在这里。',
+        teamNotesHint: '每个 Bot 在任何工作里都会读到：关于你、你的业务、环境和约定。只和某个群聊有关的事，记在下面的群聊记忆里。',
+        projectMemory: '群聊记忆',
+        projectMemoryHint: '只有这个群聊的任务会读到：它的决定、约定、联系人、日期。删除群聊时，它的记忆一起删掉。',
+        projectMemoryNone: '还没有群聊。在看板上新建群聊后，它的任务会把自己的笔记记在这里。',
         noteUntil: '到 {date} 为止',
         noteExpired: '已过 {date}，下次整理时会被忘掉',
         untilLabel: '截止日（可选）：过了这天就忘掉',

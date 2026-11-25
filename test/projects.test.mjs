@@ -11,14 +11,17 @@ const dirOf = () => mkdtempSync(join(tmpdir(), 'bots-projects-'));
 test('a key is cleaned to capitals and digits, and suggested from a name', () => {
   assert.equal(cleanKey(' web-2 '), 'WEB2');
   assert.equal(cleanKey('2fast'), 'FAST', 'a key starts with a letter');
-  assert.equal(cleanKey('abcdefgh'), 'ABCDEF');
-  assert.equal(suggestKey('One-person company'), 'OPC');
-  assert.equal(suggestKey('Website'), 'WEB');
+  // A key is an English word now, not a three-letter prefix (Bots 0.18.5).
+  assert.equal(cleanKey('abcdefgh'), 'ABCDEFGH');
+  assert.equal(cleanKey('x'.repeat(40)).length, 30, 'up to 30 characters');
+  assert.equal(suggestKey('One-person company'), 'OPC', 'initials of several words');
+  assert.equal(suggestKey('Website'), 'WEBSITE', 'one English word: the word itself, not a prefix');
   assert.equal(suggestKey('内容工作室'), 'NRGZS');
   assert.equal(suggestKey('One-person company', ['OPC']), 'OPC2');
   assert.equal(suggestKey('X'), 'XPR');
   assert.equal(suggestKey('!!'), 'PRJ');
   assert.match('OPC-12', CARD_REF_RE);
+  assert.match('MILKTEA-12', CARD_REF_RE, 'a word key numbers cards the same way');
   assert.doesNotMatch('OPC-0', CARD_REF_RE);
   assert.doesNotMatch('opc-12', CARD_REF_RE);
 });
@@ -44,7 +47,7 @@ test('projects are created with a suggested key, numbered cards, checked fields,
   assert.match(p.id, PROJECT_ID_RE);
   assert.deepEqual([p.key, p.name, p.brief, p.dir, p.last], ['OPC', 'One-person company', 'Ship weekly.', home, 0]);
   assert.throws(() => projects.create({ name: 'Other', key: 'opc' }), /the key OPC is taken/);
-  assert.throws(() => projects.create({ name: 'Other', key: '1' }), /a project key is 2–6 capital letters/);
+  assert.throws(() => projects.create({ name: 'Other', key: '1' }), /a group chat key is an English word/);
   assert.throws(() => projects.create({ name: '  ' }), /a project needs a name/);
   assert.throws(() => projects.create({ name: 'Other', dir: join(home, 'missing') }), /there is no folder/);
   assert.equal(projects.get('opc').id, p.id, 'found by key in any case');
@@ -71,7 +74,7 @@ test('a project\'s repository is owner/repo, or kept with its server on GitHub E
   assert.equal(projects.create({ name: 'Site', repo: 'https://github.com/acme/site.git' }).repo, 'acme/site');
   const ghe = projects.create({ name: 'Portal', repo: 'https://GHE.corp.example/team/portal/issues' });
   assert.equal(ghe.repo, 'ghe.corp.example/team/portal');
-  assert.throws(() => projects.create({ name: 'Other', repo: 'git@ghe.corp.example:team/portal.git' }), /ghe\.corp\.example\/team\/portal belongs to project POR already/);
+  assert.throws(() => projects.create({ name: 'Other', repo: 'git@ghe.corp.example:team/portal.git' }), /ghe\.corp\.example\/team\/portal belongs to project PORTAL already/);
   assert.throws(() => projects.create({ name: 'Other', repo: 'not a repo' }), /GitHub Enterprise/);
   assert.equal(projects.update(ghe.id, { repo: '' }).repo, '');
 });
@@ -123,7 +126,7 @@ test('a project refuses an unknown bot, and a deleted bot leaves every cast', ()
 
   // The bot goes away: the project drops it, and so does the next process that reads the file.
   const left = projects.forgetBot('bot-a');
-  assert.deepEqual(left.map((x) => x.key), ['SIT']);
+  assert.deepEqual(left.map((x) => x.key), ['SITE']);
   assert.deepEqual(projects.get(p.id).members, ['bot-b'], 'the next member leads now');
   alive.delete('bot-b');
   assert.equal(projects.list()[0] === undefined, false);
