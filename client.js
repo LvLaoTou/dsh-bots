@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
     const NS = 'bots';
     const PANEL_ID = 'bots';
     /** The Bots this page is (package.json): the Host says which one it runs, and a stale Host is pointed out. */
-    const BOTS_VERSION = '0.18.2';
+    const BOTS_VERSION = '0.18.3';
     /** How close to a new topic Harness closing the panel counts as caused by it (it archived the conversation behind). */
     const ROTATE_WINDOW_MS = 3000;
     const R = '/__dsh_bots/';
@@ -1059,6 +1059,7 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
               role: 'menuitem',
               className: 'dshb-menu-item',
               disabled: it.disabled,
+              ...(it.attr ? { [it.attr]: true } : {}),
               style: { color: it.danger ? C.error : undefined, opacity: it.disabled ? 0.5 : 1 },
               onClick: () => {
                 onClose();
@@ -1266,7 +1267,7 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         h('span', { style: { flex: 1, minWidth: 0, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, label),
         badge > 0 ? h(NeedsBadge, { n: badge, label: badgeLabel, attr: badgeAttr }) : count > 0 ? h('span', { 'data-dsh-bots-nav-count': count, style: { flex: 'none', fontSize: TINY, color: C.muted, fontVariantNumeric: 'tabular-nums' } }, count > 99 ? '99+' : String(count)) : null,
       );
-    function Rail({ t, bots, primaryId, selected, onSelect, onNew, onNewTeam, onEditTeam, onTeams, view, onActivity, messageCount, onUsage, onMemory, onSettings, teamNotes, onTasks, attention = 0, openTasks = 0, onNeeds, needCounts = {}, onProjects, projectsCount = 0 }) {
+    function Rail({ t, bots, primaryId, selected, onSelect, onNew, onNewTeam, onEditTeam, onTeams, view, onActivity, messageCount, onUsage, onMemory, onSettings, teamNotes, onTasks, attention = 0, openTasks = 0, onNeeds, needCounts = {}, onProjects, projectsCount = 0, onNewGroup }) {
       const needsWaiting = Number(needCounts?.waiting) || 0;
       const needsWorking = Number(needCounts?.working) || 0;
       const lang = langOf(t);
@@ -1346,6 +1347,8 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
                     { id: 'team', label: t('fromTeam'), icon: Icon.team(13), run: onTeams },
                     // A team of your own (Bots 0.17).
                     ...(onNewTeam ? [{ id: 'newteam', label: t('newTeam'), icon: Icon.layers(13), run: onNewTeam }] : []),
+                    // A group chat of its own (Bots 0.18.3): the same level as making a team.
+                    ...(onNewGroup ? [{ id: 'newgroup', label: t('newGroupChat'), icon: Icon.target(13), attr: 'data-dsh-bots-new-group', run: onNewGroup }] : []),
                   ],
                 })
               : null,
@@ -8085,11 +8088,18 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
     /**
      * The project groups (Bots 0.17.5), as a list to open: each one's cast, and what it is about. A
      * project's page is where you talk to its bots, each in the conversation it keeps for that project.
+     * `creating` opens the form for a new group at once: the rail's New menu (0.18.3) starts one here.
      */
-    function ProjectListView({ t, bots = [], env = null, toast = () => {}, lang = 'en', onOpen }) {
+    function ProjectListView({ t, bots = [], env = null, toast = () => {}, lang = 'en', creating = false, onCreating = () => {}, onOpen }) {
       const { data, failed, reload } = useJson('projects', STATE_POLL_MS * 6);
       const [managing, setManaging] = useState(null);
       const items = Array.isArray(data?.items) ? data.items : [];
+      // The form shows for a new group (the button here, or the rail's New menu) or for one being edited.
+      const showForm = Boolean(managing) || creating;
+      const closeForm = () => {
+        setManaging(null);
+        onCreating(false);
+      };
       return h(
         'div',
         { 'data-dsh-bots-project-list': items.length, style: { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 } },
@@ -8137,20 +8147,20 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
                   ),
                 ),
         ),
-        managing
+        showForm
           ? h(ProjectsModal, {
               t,
               projects: items,
               env,
               toast,
               bots,
-              editing: managing.edit ?? {},
-              onClose: () => setManaging(null),
+              editing: managing?.edit ?? {},
+              onClose: closeForm,
               onChanged: (saved) => {
                 void reload();
                 // Straight into the group just created: that is what the person asked for.
                 if (saved?.id) {
-                  setManaging(null);
+                  closeForm();
                   onOpen(saved.id);
                 }
               },
@@ -9259,6 +9269,7 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
       const [ticketId, setTicketId] = useState(null); // the task shown in the Tasks view
       const [needId, setNeedId] = useState(null); // the request shown in the Requests view
       const [projectId, setProjectId] = useState(null); // the project group open in its own page (Bots 0.17.5)
+      const [newGroup, setNewGroup] = useState(false); // the New menu asked for a group chat (Bots 0.18.3)
       const [tasksBot, setTasksBot] = useState(''); // the Tasks view's bot filter when another view asked for it
       const [noticeGone, setNoticeGone] = useState(false);
       const [leadsGone, setLeadsGone] = useState(false);
@@ -9310,7 +9321,7 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
       } else if (shownView === 'project') {
         main = projectId
           ? h(ProjectGroupView, { key: projectId, t, project: projectId, bots, env: env2, toast: showToast, lang, onBack: () => setProjectId(null) })
-          : h(ProjectListView, { t, bots, env: env2, toast: showToast, lang, onOpen: setProjectId });
+          : h(ProjectListView, { t, bots, env: env2, toast: showToast, lang, creating: newGroup, onCreating: setNewGroup, onOpen: setProjectId });
       } else if (shownView === 'needs') {
         const toTask = (id) => {
           setView('tasks');
@@ -9375,6 +9386,12 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
             setProjectId(null);
           },
           projectsCount: s.state?.projects ?? 0,
+          // The New menu's group chat entry (Bots 0.18.3): the same level as making a team.
+          onNewGroup: () => {
+            setView('project');
+            setProjectId(null);
+            setNewGroup(true);
+          },
         }),
         h(
           'div',
@@ -9725,6 +9742,7 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         teamLead: 'Lead',
         teamField: 'Team',
         newTeam: 'New team',
+        newGroupChat: 'New group chat',
         editTeam: 'Edit team',
         newTeamTitle: 'New team',
         editTeamTitle: 'Edit {team}',
@@ -10853,6 +10871,7 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         teamLead: '负责人',
         teamField: '所属团队',
         newTeam: '新建团队',
+        newGroupChat: '新建群聊',
         editTeam: '编辑团队',
         newTeamTitle: '新建团队',
         editTeamTitle: '编辑「{team}」',

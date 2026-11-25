@@ -3342,9 +3342,9 @@ test('threads: a Host that runs another Bots than this page says to restart Harn
   const stale = await threadsChat({ state: { botsVersion: '0.9.0' } });
   const [banner] = findAll(stale.tree, (n) => n.props['data-dsh-bots-version-stale'] !== undefined);
   assert.equal(banner?.props['data-dsh-bots-version-stale'], '0.9.0');
-  assert.match(collect(banner).join(' '), /Harness still runs Bots 0\.9\.0; this page is 0\.18\.2\. Quit and reopen Harness/);
+  assert.match(collect(banner).join(' '), /Harness still runs Bots 0\.9\.0; this page is 0\.18\.3\. Quit and reopen Harness/);
   stale.hooks.runCleanups();
-  for (const state of [{ botsVersion: '0.18.2' }, { version: 7 }, {}]) {
+  for (const state of [{ botsVersion: '0.18.3' }, { version: 7 }, {}]) {
     const v = await threadsChat({ state });
     assert.equal(findAll(v.tree, (n) => n.props['data-dsh-bots-version-stale'] !== undefined).length, 0, JSON.stringify(state));
     v.hooks.runCleanups();
@@ -3519,6 +3519,33 @@ test('board: projects are added, changed and removed from the board', async () =
   confirmButton(v.tree).props.onClick();
   await v.rerender();
   assert.deepEqual(v.posts.find((p) => p.path.endsWith('/projects/delete')).body, { id: 'pjopc00001' });
+  v.hooks.runCleanups();
+});
+
+test('0.18.3: the New menu makes a group chat, the same level as making a team, and opens its form', async () => {
+  const v = await openView('data-dsh-bots-needs-entry');
+  click(v.tree, 'data-dsh-bots-new');
+  await v.rerender(1);
+  const items = findAll(v.tree, (n) => n.props.role === 'menuitem');
+  const labels = items.map((n) => collect(n).join(' ').trim());
+  // The group chat sits beside the team, not nested under anything.
+  assert.ok(labels.includes('New team'), JSON.stringify(labels));
+  assert.ok(labels.includes('New group chat'), JSON.stringify(labels));
+  assert.equal(items.length, 4);
+  click(v.tree, 'data-dsh-bots-new-group');
+  await v.rerender();
+  // The groups page is behind, and the form for a new group is open on it.
+  assert.equal(findAll(v.tree, (n) => n.props['data-dsh-bots-project-list'] !== undefined).length, 1, 'the groups page');
+  assert.equal(findAll(v.tree, (n) => n.props['data-dsh-bots-project-name']).length, 1, 'the new group form');
+  assert.equal(findAll(v.tree, (n) => n.props['data-dsh-bots-project-name'])[0].props.value, '', 'empty: a new one');
+  // Filling it in saves through the same route the board uses, with no id.
+  findAll(v.tree, (n) => n.props['data-dsh-bots-project-name'])[0].props.onChange({ target: { value: '奶茶咖啡因记录' } });
+  await v.rerender(1);
+  click(v.tree, 'data-dsh-bots-project-save');
+  await v.rerender();
+  const saved = v.posts.filter((p) => p.path.endsWith('/projects/save')).at(-1);
+  assert.equal(saved.body.project.name, '奶茶咖啡因记录');
+  assert.equal(saved.body.project.id, undefined);
   v.hooks.runCleanups();
 });
 

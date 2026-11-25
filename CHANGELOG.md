@@ -5,6 +5,11 @@ English | [简体中文](CHANGELOG.zh-CN.md)
 What changed in each version of Bots, newest first, and what to do after upgrading. Bots tells you when a new
 version is out ([Updates](README.md#updates)).
 
+## 0.18.3 — 2026-11-25
+
+- **新建群聊 sits in the New menu, beside New team.** The button that makes a bot also makes a group chat now: it opens
+  the groups page with the new-group form already up (name, folder, cast), and saving goes straight into the group.
+
 ## 0.18.2 — 2026-11-25
 
 - **A group can be made from the groups page.** Before, the only way was the board's project dialog; the rail's list could
