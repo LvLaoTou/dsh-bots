@@ -5,6 +5,13 @@ English | [简体中文](CHANGELOG.zh-CN.md)
 What changed in each version of Bots, newest first, and what to do after upgrading. Bots tells you when a new
 version is out ([Updates](README.md#updates)).
 
+## 0.18.9 — 2026-11-25
+
+- **A group chat row in the rail now matches a team's row.** It used a lighter, smaller name; it shares the team
+  header's style (same weight, spacing and count on the right), so the two read as the same level.
+- **Each chat row carries an edit button**, like the pencil on a team's row: it opens that chat's form (name, key,
+  cast, memory) straight from the list instead of going into the chat first.
+
 ## 0.18.8 — 2026-11-25
 
 - **Group chats are listed in the rail itself, at the level of a team.** They used to be reachable only through the

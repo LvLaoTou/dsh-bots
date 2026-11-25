@@ -3346,9 +3346,9 @@ test('threads: a Host that runs another Bots than this page says to restart Harn
   const stale = await threadsChat({ state: { botsVersion: '0.9.0' } });
   const [banner] = findAll(stale.tree, (n) => n.props['data-dsh-bots-version-stale'] !== undefined);
   assert.equal(banner?.props['data-dsh-bots-version-stale'], '0.9.0');
-  assert.match(collect(banner).join(' '), /Harness still runs Bots 0\.9\.0; this page is 0\.18\.8\. Quit and reopen Harness/);
+  assert.match(collect(banner).join(' '), /Harness still runs Bots 0\.9\.0; this page is 0\.18\.9\. Quit and reopen Harness/);
   stale.hooks.runCleanups();
-  for (const state of [{ botsVersion: '0.18.8' }, { version: 7 }, {}]) {
+  for (const state of [{ botsVersion: '0.18.9' }, { version: 7 }, {}]) {
     const v = await threadsChat({ state });
     assert.equal(findAll(v.tree, (n) => n.props['data-dsh-bots-version-stale'] !== undefined).length, 0, JSON.stringify(state));
     v.hooks.runCleanups();
@@ -3476,7 +3476,7 @@ test('board: cards filter by project; a new card posts what the person filled in
   v.hooks.runCleanups();
 });
 
-test('0.18.8: group chats are listed in the rail, at the level of a team, and open their page', async () => {
+test('0.18.8/9: group chats are listed in the rail at the level of a team, and edited from there', async () => {
   const v = await mountPanel();
   const rows = findAll(v.tree, (n) => n.props['data-dsh-bots-rail-chat'] !== undefined);
   assert.deepEqual(rows.map((n) => n.props['data-dsh-bots-rail-chat']), ['pjopc00001']);
@@ -3484,10 +3484,16 @@ test('0.18.8: group chats are listed in the rail, at the level of a team, and op
   // The list of them sits beside the bot groups in the same scroll area, not behind a view.
   const chats = findAll(v.tree, (n) => n.props['data-dsh-bots-rail-chats'] !== undefined)[0];
   assert.equal(chats.props['data-dsh-bots-rail-chats'], 1);
-  assert.equal(findAll(chats, (n) => n.type === 'button').length, 1);
+  // A row to open it, and a pencil to edit it, as a team's row has.
+  assert.equal(findAll(chats, (n) => n.type === 'button').length, 2);
+  assert.equal(findAll(chats, (n) => n.props['data-dsh-bots-rail-chat-edit'] === 'pjopc00001').length, 1);
   click(v.tree, 'data-dsh-bots-rail-chat', 'pjopc00001');
   await v.rerender();
   assert.equal(findAll(v.tree, (n) => n.props['data-dsh-bots-project-group'] === 'pjopc00001').length, 1, 'its page opens');
+  // The pencil opens that chat's form, already filled in.
+  click(v.tree, 'data-dsh-bots-rail-chat-edit', 'pjopc00001');
+  await v.rerender();
+  assert.equal(findAll(v.tree, (n) => n.props['data-dsh-bots-project-name'])[0].props.value, 'One-person company');
   v.hooks.runCleanups();
 });
 

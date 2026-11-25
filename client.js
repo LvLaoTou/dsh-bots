@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
     const NS = 'bots';
     const PANEL_ID = 'bots';
     /** The Bots this page is (package.json): the Host says which one it runs, and a stale Host is pointed out. */
-    const BOTS_VERSION = '0.18.8';
+    const BOTS_VERSION = '0.18.9';
     /** How close to a new topic Harness closing the panel counts as caused by it (it archived the conversation behind). */
     const ROTATE_WINDOW_MS = 3000;
     const R = '/__dsh_bots/';
@@ -1291,7 +1291,7 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         h('span', { style: { flex: 1, minWidth: 0, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, label),
         badge > 0 ? h(NeedsBadge, { n: badge, label: badgeLabel, attr: badgeAttr }) : count > 0 ? h('span', { 'data-dsh-bots-nav-count': count, style: { flex: 'none', fontSize: TINY, color: C.muted, fontVariantNumeric: 'tabular-nums' } }, count > 99 ? '99+' : String(count)) : null,
       );
-    function Rail({ t, bots, primaryId, selected, onSelect, onNew, onNewTeam, onEditTeam, onTeams, view, onActivity, messageCount, onUsage, onMemory, onSettings, teamNotes, onTasks, attention = 0, openTasks = 0, onNeeds, needCounts = {}, onProjects, projectsCount = 0, onNewGroup, chatId = null, onChat }) {
+    function Rail({ t, bots, primaryId, selected, onSelect, onNew, onNewTeam, onEditTeam, onTeams, view, onActivity, messageCount, onUsage, onMemory, onSettings, teamNotes, onTasks, attention = 0, openTasks = 0, onNeeds, needCounts = {}, onProjects, projectsCount = 0, onNewGroup, chatId = null, onChat, onEditChat }) {
       const needsWaiting = Number(needCounts?.waiting) || 0;
       const needsWorking = Number(needCounts?.working) || 0;
       const lang = langOf(t);
@@ -1302,6 +1302,8 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
       const allChats = Array.isArray(chatData?.items) ? chatData.items : [];
       const chats = (q.trim() ? allChats.filter((c) => String(c.name || '').toLowerCase().includes(q.trim().toLowerCase())) : allChats).slice(0, 20);
       const needle = q.trim().toLowerCase();
+      // A list section's row: a team's, or a group chat's (Bots 0.18.9).
+      const headStyle = { display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '8px 10px 3px', fontSize: TINY, fontWeight: 700, color: C.faint, letterSpacing: '.02em', minHeight: 26 };
       const shown = bots
         .filter((b) => !needle || [b.name, b.handle, b.bio].some((s) => str(s).toLowerCase().includes(needle)))
         .sort((a, b) => (a.id === primaryId ? -1 : b.id === primaryId ? 1 : 0));
@@ -1392,32 +1394,40 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
           'div',
           { className: 'dshb-scroll', style: { flex: 1, padding: '2px 8px 8px', display: 'flex', flexDirection: 'column', gap: 2 } },
           // Group chats sit in the list itself, at the same level as a team (Bots 0.18.8), so a new one
-          // is where the person looks for it rather than behind a view.
+          // is where the person looks for it rather than behind a view. Each is drawn like a team's own
+          // row — same weight and spacing — with its edit button out (0.18.9).
           chats.length
             ? h(
                 'div',
                 { 'data-dsh-bots-rail-chats': chats.length, style: { display: 'flex', flexDirection: 'column', gap: 2, paddingBottom: 4 } },
                 h(
                   'div',
-                  { style: { display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '8px 10px 3px', fontSize: TINY, fontWeight: 700, color: C.faint, letterSpacing: '.02em', minHeight: 26 } },
+                  { style: { ...headStyle, padding: '8px 10px 3px' } },
                   h('span', { style: { flex: 1, minWidth: 0 } }, t('railChats')),
                   h('span', { style: { fontWeight: 500 } }, chats.length),
                 ),
                 chats.map((c) =>
                   h(
-                    'button',
-                    {
-                      key: c.id,
-                      type: 'button',
-                      'data-dsh-bots-rail-chat': c.id,
-                      'data-active': view === 'project' && chatId === c.id,
-                      title: c.name,
-                      onClick: () => onChat && onChat(c.id),
-                      style: { display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '7px 10px', border: 0, borderRadius: 8, background: 'transparent', color: 'inherit', font: 'inherit', textAlign: 'left', cursor: 'pointer' },
-                    },
-                    h('span', { style: { display: 'inline-flex', flex: 'none', color: C.muted } }, Icon.target(14)),
-                    h('span', { style: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 } }, c.name),
-                    h('span', { style: { flex: 'none', fontSize: TINY, color: C.faint } }, String((c.members ?? []).length)),
+                    'div',
+                    { key: c.id, className: 'dshb-grouprow', 'data-active': view === 'project' && chatId === c.id, style: { display: 'flex', alignItems: 'center', minWidth: 0 } },
+                    h(
+                      'button',
+                      {
+                        type: 'button',
+                        className: 'dshb-grouphead',
+                        'data-dsh-bots-rail-chat': c.id,
+                        title: c.name,
+                        onClick: () => onChat && onChat(c.id),
+                        style: { ...headStyle, flex: 1, minWidth: 0, border: 'none', background: 'transparent', font: 'inherit', textAlign: 'left', cursor: 'pointer', borderRadius: 8 },
+                      },
+                      h('span', { style: { display: 'inline-flex', flex: 'none', color: C.muted } }, Icon.target(11)),
+                      h('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 } }, c.name),
+                      h('span', { style: { fontWeight: 500, flex: 'none' } }, (c.members ?? []).length),
+                    ),
+                    // The same pencil a team's row carries: it opens this chat's form.
+                    onEditChat
+                      ? h('button', { type: 'button', className: 'dshb-groupedit', 'data-dsh-bots-rail-chat-edit': c.id, title: t('edit'), 'aria-label': t('edit'), onClick: () => onEditChat(c.id) }, Icon.edit(12))
+                      : null,
                   ),
                 ),
               )
@@ -1453,7 +1463,7 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
                     busy > 0 ? h('span', { key: 'b', 'data-dsh-bots-group-busy': busy, title: t('groupBusy', { n: busy }), style: { display: 'inline-flex', alignItems: 'center', gap: 3, flex: 'none', fontWeight: 500, color: C.muted } }, h(StatusDot, { status: 'running', size: 6 }), busy) : null,
                     asking > 0 ? h(NeedsBadge, { key: 'a', n: asking, label: t('askingBadge', { n: asking }), attr: 'data-dsh-bots-group-asking' }) : null,
                   ];
-                  const headStyle = { display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '8px 10px 3px', fontSize: TINY, fontWeight: 700, color: C.faint, letterSpacing: '.02em', minHeight: 26 };
+
                   return h(
                     'div',
                     { key: g.id || '-', 'data-dsh-bots-group': id, 'data-folded': isFolded || undefined, style: { display: 'flex', flexDirection: 'column', gap: 2 } },
@@ -8201,15 +8211,19 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
      * project's page is where you talk to its bots, each in the conversation it keeps for that project.
      * `creating` opens the form for a new group at once: the rail's New menu (0.18.3) starts one here.
      */
-    function ProjectListView({ t, bots = [], env = null, toast = () => {}, lang = 'en', creating = false, onCreating = () => {}, onOpen }) {
+    function ProjectListView({ t, bots = [], env = null, toast = () => {}, lang = 'en', creating = false, onCreating = () => {}, editing = null, onEditing = () => {}, onOpen }) {
       const { data, failed, reload } = useJson('projects', STATE_POLL_MS * 6);
       const [managing, setManaging] = useState(null);
       const items = Array.isArray(data?.items) ? data.items : [];
+      // A chat the rail asked to edit (Bots 0.18.9): its form opens as soon as the list knows it.
+      const editTarget = editing ? items.find((p) => p.id === editing) ?? null : null;
       // The form shows for a new group (the button here, or the rail's New menu) or for one being edited.
-      const showForm = Boolean(managing) || creating;
+      const showForm = Boolean(managing) || creating || Boolean(editTarget);
+      const shownProject = managing?.edit ?? editTarget ?? {};
       const closeForm = () => {
         setManaging(null);
         onCreating(false);
+        onEditing(null);
       };
       return h(
         'div',
@@ -8265,7 +8279,7 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
               env,
               toast,
               bots,
-              editing: managing?.edit ?? {},
+              editing: shownProject,
               onClose: closeForm,
               onChanged: (saved) => {
                 void reload();
@@ -9381,6 +9395,7 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
       const [needId, setNeedId] = useState(null); // the request shown in the Requests view
       const [projectId, setProjectId] = useState(null); // the project group open in its own page (Bots 0.17.5)
       const [newGroup, setNewGroup] = useState(false); // the New menu asked for a group chat (Bots 0.18.3)
+      const [editGroup, setEditGroup] = useState(null); // a chat's form opened from the rail (Bots 0.18.9)
       const [tasksBot, setTasksBot] = useState(''); // the Tasks view's bot filter when another view asked for it
       const [noticeGone, setNoticeGone] = useState(false);
       const [leadsGone, setLeadsGone] = useState(false);
@@ -9432,7 +9447,7 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
       } else if (shownView === 'project') {
         main = projectId
           ? h(ProjectGroupView, { key: projectId, t, project: projectId, bots, env: env2, toast: showToast, lang, onBack: () => setProjectId(null) })
-          : h(ProjectListView, { t, bots, env: env2, toast: showToast, lang, creating: newGroup, onCreating: setNewGroup, onOpen: setProjectId });
+          : h(ProjectListView, { t, bots, env: env2, toast: showToast, lang, creating: newGroup, onCreating: setNewGroup, editing: editGroup, onEditing: setEditGroup, onOpen: setProjectId });
       } else if (shownView === 'needs') {
         const toTask = (id) => {
           setView('tasks');
@@ -9506,9 +9521,17 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
           // A group chat listed in the rail opens its page (Bots 0.18.8).
           chatId: projectId,
           onChat: (id) => {
+            setEditGroup(null);
             setView('project');
             setNewGroup(false);
             setProjectId(id);
+          },
+          // Its pencil edits the chat from the list itself (Bots 0.18.9).
+          onEditChat: (id) => {
+            setView('project');
+            setNewGroup(false);
+            setProjectId(null);
+            setEditGroup(id);
           },
         }),
         h(
