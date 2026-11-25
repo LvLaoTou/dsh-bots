@@ -5,6 +5,14 @@ English | [简体中文](CHANGELOG.zh-CN.md)
 What changed in each version of Bots, newest first, and what to do after upgrading. Bots tells you when a new
 version is out ([Updates](README.md#updates)).
 
+## 0.18.7 — 2026-11-25
+
+- **Making a group chat no longer asks for a folder.** The **Folder** field and its **Choose folder…** button are gone
+  from the form. A group chat never needed you to decide where files live: each one has its own folder under
+  `<bots cache>/groups/<KEY>`, made when the group is, and the memory bank is bound to it.
+- The folder still exists — a task has to run somewhere, and a bank is resolved by path — it is just not a field you
+  fill in. Groups already in use keep the folder they had.
+
 ## 0.18.6 — 2026-11-25
 
 - **A group chat key goes up to 50 characters.** The old 2–6 came from the key doubling as a card prefix, and the

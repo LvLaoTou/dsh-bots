@@ -3342,9 +3342,9 @@ test('threads: a Host that runs another Bots than this page says to restart Harn
   const stale = await threadsChat({ state: { botsVersion: '0.9.0' } });
   const [banner] = findAll(stale.tree, (n) => n.props['data-dsh-bots-version-stale'] !== undefined);
   assert.equal(banner?.props['data-dsh-bots-version-stale'], '0.9.0');
-  assert.match(collect(banner).join(' '), /Harness still runs Bots 0\.9\.0; this page is 0\.18\.6\. Quit and reopen Harness/);
+  assert.match(collect(banner).join(' '), /Harness still runs Bots 0\.9\.0; this page is 0\.18\.7\. Quit and reopen Harness/);
   stale.hooks.runCleanups();
-  for (const state of [{ botsVersion: '0.18.6' }, { version: 7 }, {}]) {
+  for (const state of [{ botsVersion: '0.18.7' }, { version: 7 }, {}]) {
     const v = await threadsChat({ state });
     assert.equal(findAll(v.tree, (n) => n.props['data-dsh-bots-version-stale'] !== undefined).length, 0, JSON.stringify(state));
     v.hooks.runCleanups();
@@ -3481,22 +3481,9 @@ test('board: projects are added, changed and removed from the board', async () =
   click(v.tree, 'data-dsh-bots-project-new');
   await v.rerender(1);
   const field = (attr) => findAll(v.tree, (n) => n.props[attr])[0];
-  // No folder dialog in this Host: the folder is typed.
-  assert.equal(field('data-dsh-bots-project-pick'), undefined);
+  // No folder is asked for (Bots 0.18.7): a group gets its own, whatever the Host can do with dialogs.
+  assert.equal(field('data-dsh-bots-project-dir'), undefined);
   field('data-dsh-bots-project-name').props.onChange({ target: { value: 'Website' } });
-  await v.rerender(1);
-  // With the desktop's folder dialog, the folder is picked; typing still works after.
-  globalThis.__DSH_DIRECTORY_PICKER__ = { pick: async () => '/Users/me/code/site' };
-  try {
-    await v.rerender(1);
-    field('data-dsh-bots-project-pick').props.onClick();
-    await v.rerender(1);
-    assert.equal(field('data-dsh-bots-project-dir').props.value, '/Users/me/code/site');
-    assert.equal(field('data-dsh-bots-project-name').props.value, 'Website');
-  } finally {
-    delete globalThis.__DSH_DIRECTORY_PICKER__;
-  }
-  field('data-dsh-bots-project-dir').props.onChange({ target: { value: '~/code/site' } });
   await v.rerender(1);
   field('data-dsh-bots-project-brief').props.onChange({ target: { value: 'Astro, deployed on push.' } });
   await v.rerender(1);
@@ -3504,7 +3491,7 @@ test('board: projects are added, changed and removed from the board', async () =
   await v.rerender(1);
   click(v.tree, 'data-dsh-bots-project-save');
   await v.rerender();
-  assert.deepEqual(v.posts.find((p) => p.path.endsWith('/projects/save')).body, { project: { name: 'Website', key: '', dir: '~/code/site', repo: 'acme/site', brief: 'Astro, deployed on push.' } });
+  assert.deepEqual(v.posts.find((p) => p.path.endsWith('/projects/save')).body, { project: { name: 'Website', key: '', dir: '', repo: 'acme/site', brief: 'Astro, deployed on push.' } });
   // Changed: the id goes along.
   click(v.tree, 'data-dsh-bots-project-edit', 'pjopc00001');
   await v.rerender(1);
@@ -3621,9 +3608,8 @@ test('0.18.5: memory needs no folder from the person, and a Host without the man
   try {
     click(v.tree, 'data-dsh-bots-project-list-edit', 'pjopc00001');
     await v.rerender();
-    // Clearing the folder leaves the memory field usable: the group gets a folder of its own.
-    findAll(v.tree, (n) => n.props['data-dsh-bots-project-dir'])[0].props.onChange({ target: { value: '' } });
-    await v.rerender();
+    // No folder is asked for at all, and the memory field works regardless.
+    assert.equal(findAll(v.tree, (n) => n.props['data-dsh-bots-project-dir']).length, 0, 'no folder field');
     assert.notEqual(findAll(v.tree, (n) => n.props['data-dsh-bots-project-bank'])[0].props.disabled, true);
   } finally {
     globalThis.fetch = inner;

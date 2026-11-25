@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
     const NS = 'bots';
     const PANEL_ID = 'bots';
     /** The Bots this page is (package.json): the Host says which one it runs, and a stale Host is pointed out. */
-    const BOTS_VERSION = '0.18.6';
+    const BOTS_VERSION = '0.18.7';
     /** How close to a new topic Harness closing the panel counts as caused by it (it archived the conversation behind). */
     const ROTATE_WINDOW_MS = 3000;
     const R = '/__dsh_bots/';
@@ -3960,19 +3960,6 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
       const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
       /** A bot joins or leaves the cast (Bots 0.17.5); the first one added leads the project. */
       const toggleMember = (id) => setCast((list) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]));
-      // The Host's folder dialog (Bots 0.16), as in adding skills from a folder; typing the path still works.
-      const canPick = typeof env?.pickDirectory === 'function' && env.canPickDirectory?.() !== false;
-      const pickDir = () => {
-        setError('');
-        Promise.resolve()
-          .then(() => env.pickDirectory())
-          .then(
-            (dir) => {
-              if (typeof dir === 'string' && dir !== '') setForm((f) => ({ ...f, dir }));
-            },
-            () => setError(t('pickFailed')),
-          );
-      };
       const save = () => {
         if (busy || !form.name.trim()) return;
         setBusy(true);
@@ -4018,16 +4005,6 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
               h(Field, { label: t('projectKey'), style: { flex: '1 1 120px' } }, h(Input, { value: form.key, maxLength: 50, mono: true, placeholder: t('projectKeyAuto'), 'data-dsh-bots-project-key': true, onChange: set('key') })),
             ),
             h('div', { style: { fontSize: TINY, color: C.faint, marginTop: -8 } }, t('projectKeyHint')),
-            h(
-              Field,
-              { label: t('projectDir'), hint: t('projectDirHint') },
-              h(
-                'div',
-                { style: { display: 'flex', gap: 8 } },
-                h(Input, { value: form.dir, mono: true, placeholder: '~/code/app', 'data-dsh-bots-project-dir': true, onChange: set('dir') }),
-                canPick ? h(Btn, { icon: Icon.folder(13), onClick: pickDir, 'data-dsh-bots-project-pick': true }, t('chooseFolder')) : null,
-              ),
-            ),
             h(Field, { label: t('projectRepo'), hint: t('projectRepoHint') }, h(Input, { value: form.repo, mono: true, placeholder: t('projectRepoPlaceholder'), 'data-dsh-bots-project-repo': true, onChange: set('repo') })),
             h(Field, { label: t('projectBrief'), hint: t('projectBriefHint') }, h(TextArea, { value: form.brief, rows: 6, maxLength: 4000, placeholder: t('projectBriefPlaceholder'), 'data-dsh-bots-project-brief': true, onChange: set('brief') })),
             // The project's cast (Bots 0.17.5): a bot works in a project with a conversation of its own

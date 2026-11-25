@@ -218,7 +218,7 @@ Android app — and what each project said and decided stays apart.
   project without naming it. The bot's own notes (`self`) and the shared ones (`team`) follow it into every project, so
   **what concerns one project must not go there**, or another project reads it.
 - **A project has a page of its own**: **Projects** in the rail lists them, and opening one shows its cast beside the conversation with the member picked. Those messages stay in the project.
-- **Memory can be split per group**: the group form's **Memory** field binds this project to a Hindsight bank (create one or pick an existing one), applied on save. A bank is bound by folder, so set the folder first; the field needs the dsh-hindsight-manager plugin and is not drawn without it.
+- **Memory can be split per group**: the group form's **Memory** field binds this project to a Hindsight bank (create one or pick an existing one), applied on save. A bank is bound by folder, but the group's folder is assigned for it (<bots cache>/groups/<KEY>), so you never set one; the field needs the dsh-hindsight-manager plugin and is not drawn without it.
 - **The first bot added leads it**, by the same rule a team's lead follows.
 - **Deleting a bot or a project** archives those conversations; taking a bot off a project ends its conversation there
   and leaves the notes for whoever takes the work over.
