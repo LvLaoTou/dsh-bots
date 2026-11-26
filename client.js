@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
     const NS = 'bots';
     const PANEL_ID = 'bots';
     /** The Bots this page is (package.json): the Host says which one it runs, and a stale Host is pointed out. */
-    const BOTS_VERSION = '0.19.3';
+    const BOTS_VERSION = '0.19.4';
     /** How close to a new topic Harness closing the panel counts as caused by it (it archived the conversation behind). */
     const ROTATE_WINDOW_MS = 3000;
     const R = '/__dsh_bots/';
@@ -2896,9 +2896,11 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
       );
     }
 
-    function ChatTab({ t, bot, env, toast, project = '', projectKey = '', cast = [], onAddress }) {
+    function ChatTab({ t, bot, env, toast, project = '', projectKey = '', cast = [], onAddress, shared = false }) {
       // Inside a project group, this chat is that project's conversation with the bot (Bots 0.17.5).
-      const { items: listed, threads, failed, reload } = useMessages(bot.id, true, '', project);
+      // `shared` is the group's own timeline (Bots 0.19.4): every member's messages in one list, each
+      // with its own sender, which is what a group chat is; `bot` is then who the next message is for.
+      const { items: listed, threads, failed, reload } = useMessages(shared ? '' : bot.id, true, '', project);
       const [text, setText] = useState('');
       // Messages sent from here: shown at once (queued), then the Host's own copy; a failed one stays to be sent again.
       const [local, setLocal] = useState([]);
@@ -8420,7 +8422,7 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
                 h(
                   'div',
                   { style: { flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' } },
-                  member ? h('div', { 'data-dsh-bots-project-chat': member.id, style: { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' } }, h(ChatTab, { key: member.id, t, bot: { id: member.id, name: member.name, handle: member.handle, avatar: member.avatar }, env, toast, project, projectKey: view?.key ?? '', cast: members.map((m) => ({ id: m.id, handle: m.handle, name: m.name })), onAddress: sendToMember })) : null,
+                  member ? h('div', { 'data-dsh-bots-project-chat': member.id, style: { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' } }, h(ChatTab, { key: 'group', t, bot: { id: member.id, name: member.name, handle: member.handle, avatar: member.avatar }, env, toast, project, projectKey: view?.key ?? '', shared: true, cast: members.map((m) => ({ id: m.id, handle: m.handle, name: m.name })), onAddress: sendToMember })) : null,
                 ),
               ),
       );

@@ -5,6 +5,16 @@ English | [简体中文](CHANGELOG.zh-CN.md)
 What changed in each version of Bots, newest first, and what to do after upgrading. Bots tells you when a new
 version is out ([Updates](README.md#updates)).
 
+## 0.19.4 — 2026-11-26
+
+- **A group chat is now one timeline, not one per member.** It used to be N one-to-one conversations behind a member
+  picker, so you only saw the member you were on — which is why the group looked empty. Every message of the group
+  (yours, and any member's answer) is now in one list in time order, each with its sender's face and name; the member
+  list on the left is just "who the next message goes to".
+- `@someone` still names the addressee without switching first.
+- Pending and working state, quoting and images work as before; a message still shows at once and the list refreshes
+  within 3 seconds.
+
 ## 0.19.3 — 2026-11-26
 
 - **"GitHub repository" is now "Git repository".** Not GitHub only: `owner/repo` means github.com, `host/owner/repo`
