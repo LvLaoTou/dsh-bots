@@ -36,6 +36,7 @@ import { basename, isAbsolute, join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 
+import { bankOf, memoryBlock, recallMemories, RECALL_TIMEOUT_MS } from './lib/hindsight-recall.mjs';
 import { bareBody, isIdleText, picksFrom, stepOf, MAX_DEPTH } from './lib/group-loop.mjs';
 import { createStore, initialsOf, slugify, SKILL_RE, PALETTE, MAX_SKILLS, MAX_SKILLS_ON } from './lib/store.mjs';
 import { catalog as appCatalog, CATEGORIES, mcpConfigFor } from './lib/apps.mjs';
@@ -544,9 +545,12 @@ export function apply(ctx, config, deps = {}) {
               const ticket = ticketId ? tickets.get(ticketId) : undefined;
               // A conversation inside a project group reads as that project's place (Bots 0.17.5).
               const group = ticket ? undefined : projectGroupFor(agent.session.id);
-              return now
+              const base = now
                 ? personaText(now, roster, { skillsInline, skillNames, apps: appNames, channels: channelNames(roster), dispatcher: routerActive() ? 'router' : 'hands-on', tickets: true, teamNames: teamNamesForPrompt(), ...projectsForPersona(ticket), ...(ticket ? { ticket } : {}), ...(group ? { projectGroup: group } : {}) })
                 : '';
+              // Inside a group, its shared memory rides along (Bots 0.21): the same block for every member.
+              const memo = group ? rememberedBy(group.id) : '';
+              return memo ? `${base}\n${memo}` : base;
             },
           }),
         );
@@ -960,9 +964,37 @@ export function apply(ctx, config, deps = {}) {
       idleWaiters.set(sessionId, list);
     });
   }
+  // --- the group's memory, from Hindsight (Bots 0.21) ------------------------------------------
+  // Every member of a group reads the same bank, so one block, refreshed when the group is spoken
+  // to, is what all of them see. Read-only: writing stays with the members and their memory tools.
+
+  /** Project id → the block its members' prompts carry, and when it was read. */
+  const groupMemory = new Map();
+  /** The Hindsight service this machine configured, or '' when it has none. */
+  function hindsightApiUrl() {
+    try {
+      const cfg = JSON.parse(readFileSync(join(homedir(), '.hindsight', 'coding-agent.json'), 'utf8'));
+      return String(cfg?.apiUrl ?? '').trim() || 'http://127.0.0.1:8888';
+    } catch {
+      return ''; // No config: this machine has no Hindsight.
+    }
+  }
+  /** Read the group's bank for `query` and keep the block its members will see. */
+  async function refreshGroupMemory(p, query) {
+    const apiUrl = hindsightApiUrl();
+    if (!apiUrl || !p?.key || !String(query ?? '').trim()) return;
+    const memories = await recallMemories({ apiUrl, bankId: bankOf(p.key), query, timeoutMs: RECALL_TIMEOUT_MS });
+    if (!memories.length) {
+      groupMemory.delete(p.id);
+      return;
+    }
+    groupMemory.set(p.id, { text: memoryBlock(memories, { key: p.key }), at: nowMs() });
+  }
+  /** What the group remembers, for the prompt; '' when nothing was read or nothing matched. */
+  const rememberedBy = (projectId) => groupMemory.get(projectId)?.text ?? '';
+
   /** The last few things said in a group, as lines a member can read: who, and what. */
-  function groupDigest(projectId, limit = 8) {
-    return store
+  function groupDigest(projectId, limit = 8) {    return store
       .messages({ project: projectId, limit: 40 })
       .filter((m) => m.kind !== 'system' && String(m.text ?? '').trim() !== '')
       .slice(-limit)
@@ -1007,6 +1039,9 @@ export function apply(ctx, config, deps = {}) {
         if (!step.go) return;
         const target = step.next[0];
         depth += 1;
+        // The next speaker hears the round's memory refreshed against what was just said. Not
+        // awaited: a slow Hindsight must never hold the conversation up.
+        void refreshGroupMemory(p, String(last.text ?? '')).catch(() => {});
         const digest = groupDigest(p.id);
         const sent = await userSend(
           store.get(target.id),
@@ -6765,7 +6800,11 @@ export function apply(ctx, config, deps = {}) {
         const inGroup = String(body.project ?? '').trim();
         if (inGroup) {
           const p = projects.get(inGroup);
-          if (p) void runGroupRound(p, bot.id, sent.sessionId).catch(() => {});
+          if (p) {
+            // Read the group's shared memory for this message first, so the answer already has it.
+            void refreshGroupMemory(p, String(body.text ?? '')).catch(() => {});
+            void runGroupRound(p, bot.id, sent.sessionId).catch(() => {});
+          }
         }
         return { ok: true, sessionId: sent.sessionId, ...(sent.message ? { message: sent.message } : {}) };
       },

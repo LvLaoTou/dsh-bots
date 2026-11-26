@@ -5,6 +5,18 @@ English | [简体中文](CHANGELOG.zh-CN.md)
 What changed in each version of Bots, newest first, and what to do after upgrading. Bots tells you when a new
 version is out ([Updates](README.md#updates)).
 
+## 0.21.0 — 2026-11-26
+
+- **A group chat reads its Hindsight memory now, and every member reads the same one.** A group's bank is
+  `bots::chat::<KEY>`; whenever someone speaks to the group — and before each hand-on in a round — Bots recalls
+  against that bank with what was just said and puts the hits in a "What this group remembers" block in **every
+  member's** prompt, so what one learned the others know on their next turn.
+- Why not the plugin's own injection: it fires **once per session**, and a group's sessions are long-lived, so after
+  the first turn there is nothing. This reads every round, following the topic.
+- Three bounds: it gives up after 4 seconds (never blocks the conversation), the block is capped at 1400 characters,
+  and an unreachable or unconfigured service reads as no memories.
+- Read-only: writing stays with the members and their own memory tools.
+
 ## 0.20.0 — 2026-11-26
 
 **A real group chat: the bots discuss with each other.** The round design follows DS-Bot (Fei-Craft).
