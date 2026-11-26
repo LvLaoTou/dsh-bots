@@ -6760,6 +6760,27 @@ export function apply(ctx, config, deps = {}) {
     usage: { get: (url) => usageReport(url) },
     // The live part of `state`, cheap enough to poll every second or two while bots work.
     activity: { get: () => activityView() },
+    /**
+     * What a group chat's members have been doing (Bots 0.19.5): the steps each conversation took —
+     * tool calls and answers — so the group can show the work and not only its last line.
+     */
+    'activity/log': {
+      get: (url) => {
+        const p = projects.get(String(url.searchParams.get('project') ?? ''));
+        if (!p) return { ok: false, reason: 'no such project' };
+        const steps = [];
+        for (const pair of projectSessions.ofProject(p.id)) {
+          const bot = store.get(pair.botId);
+          const running = Boolean(activity.get(pair.sessionId));
+          for (const s of activity.history(pair.sessionId)) {
+            steps.push({ ...s, bot: bot?.id ?? '', handle: bot?.handle ?? '', name: bot?.name ?? bot?.handle ?? '' });
+          }
+          if (running) steps.push({ at: nowMs(), kind: 'running', bot: bot?.id ?? '', handle: bot?.handle ?? '', name: bot?.name ?? bot?.handle ?? '' });
+        }
+        steps.sort((a, b) => a.at - b.at);
+        return { ok: true, project: p.key, steps: steps.slice(-60) };
+      },
+    },
     prices: {
       get: () => pricesView(),
       post: (body) => {

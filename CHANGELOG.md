@@ -5,6 +5,16 @@ English | [简体中文](CHANGELOG.zh-CN.md)
 What changed in each version of Bots, newest first, and what to do after upgrading. Bots tells you when a new
 version is out ([Updates](README.md#updates)).
 
+## 0.19.5 — 2026-11-26
+
+- **A group chat shows what its members are doing**, not only the last line they wrote. Above the composer sits
+  "Work · N steps": each line is the time, who, and what (read a file, ran a command, searched, sent a message — and
+  "wrote a reply" at the end). The newest three show by default; the toggle opens all of them (up to 60).
+- Steps are kept per group, so whoever did the work appears in the same block, and they remain readable after the
+  turn ends.
+- Summaries keep the existing scrub: a command's first line, a file's name, a search's words, secrets redacted; tool
+  results are never read.
+
 ## 0.19.4 — 2026-11-26
 
 - **A group chat is now one timeline, not one per member.** It used to be N one-to-one conversations behind a member

@@ -371,6 +371,13 @@ function mockFetch(posts = []) {
       return view ? { ok: true, json: async () => view } : { ok: false, status: 404, json: async () => null };
     }
     if (path.startsWith('/__dsh_bots/needs')) return { ok: true, json: async () => ({ items: NEEDS, next_offset: null }) };
+    // What a group's members did, step by step (Bots 0.19.5).
+    if (path.startsWith('/__dsh_bots/activity/log')) {
+      return {
+        ok: true,
+        json: async () => ({ ok: true, project: 'OPC', steps: [{ at: Date.now() - 5000, kind: 'tool', tool: 'read', detail: 'lib/a.mjs', handle: 'bob', name: 'Bob' }] }),
+      };
+    }
     // A group chat's page (Bots 0.17.5): its cast, which is also who `@` can name (Bots 0.19.1).
     if (path.startsWith('/__dsh_bots/projects/group')) {
       return {
@@ -3360,9 +3367,9 @@ test('threads: a Host that runs another Bots than this page says to restart Harn
   const stale = await threadsChat({ state: { botsVersion: '0.9.0' } });
   const [banner] = findAll(stale.tree, (n) => n.props['data-dsh-bots-version-stale'] !== undefined);
   assert.equal(banner?.props['data-dsh-bots-version-stale'], '0.9.0');
-  assert.match(collect(banner).join(' '), /Harness still runs Bots 0\.9\.0; this page is 0\.19\.4\. Quit and reopen Harness/);
+  assert.match(collect(banner).join(' '), /Harness still runs Bots 0\.9\.0; this page is 0\.19\.5\. Quit and reopen Harness/);
   stale.hooks.runCleanups();
-  for (const state of [{ botsVersion: '0.19.4' }, { version: 7 }, {}]) {
+  for (const state of [{ botsVersion: '0.19.5' }, { version: 7 }, {}]) {
     const v = await threadsChat({ state });
     assert.equal(findAll(v.tree, (n) => n.props['data-dsh-bots-version-stale'] !== undefined).length, 0, JSON.stringify(state));
     v.hooks.runCleanups();
@@ -3560,6 +3567,24 @@ test('0.19.1: naming a member with @ in a group chat sends it to that member, an
   click(v.tree, 'data-dsh-bots-send');
   await v.rerender();
   assert.deepEqual(v.posts.filter((p) => p.path.endsWith('/send')).at(-1).body, { to: 'bot-b', text: 'and the title', project: 'pjopc00001' });
+  v.hooks.runCleanups();
+});
+
+test('0.19.5: a group chat shows the steps its members took', async () => {
+  const v = await openView('data-dsh-bots-projects-entry');
+  click(v.tree, 'data-dsh-bots-rail-chat', 'pjopc00001');
+  await v.rerender();
+  // Collapsed it says how many steps; the newest ones are shown.
+  const box = findAll(v.tree, (n) => n.props['data-dsh-bots-process'] !== undefined)[0];
+  assert.equal(box.props['data-dsh-bots-process'], 1);
+  const text = collect(box).join(' ');
+  assert.match(text, /@bob/, 'who did it');
+  assert.match(text, /read · lib\/a\.mjs/, 'what it did');
+  assert.equal(findAll(v.tree, (n) => n.props['data-dsh-bots-process-step'] !== undefined).length, 1);
+  // Its toggle opens the whole log (the mock has one step, so it stays one).
+  click(v.tree, 'data-dsh-bots-process-toggle');
+  await v.rerender();
+  assert.equal(findAll(v.tree, (n) => n.props['data-dsh-bots-process-step'] !== undefined).length, 1);
   v.hooks.runCleanups();
 });
 

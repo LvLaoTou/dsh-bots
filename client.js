@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
     const NS = 'bots';
     const PANEL_ID = 'bots';
     /** The Bots this page is (package.json): the Host says which one it runs, and a stale Host is pointed out. */
-    const BOTS_VERSION = '0.19.4';
+    const BOTS_VERSION = '0.19.5';
     /** How close to a new topic Harness closing the panel counts as caused by it (it archived the conversation behind). */
     const ROTATE_WINDOW_MS = 3000;
     const R = '/__dsh_bots/';
@@ -2896,6 +2896,44 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
       );
     }
 
+    /**
+     * What a group chat's members are doing, step by step (Bots 0.19.5): the tool calls and the answers
+     * written, newest last, so the group shows the work itself and not only its last line.
+     */
+    function ProcessLog({ t, project }) {
+      const { data } = useJson(`activity/log?project=${encodeURIComponent(project)}`, 3000);
+      const steps = Array.isArray(data?.steps) ? data.steps : [];
+      const [open, setOpen] = useState(false);
+      if (!steps.length) return null;
+      const shown = open ? steps.slice(-40) : steps.slice(-3);
+      const line = (s) => (s.kind === 'tool' ? [s.tool, s.detail].filter(Boolean).join(' · ') : s.kind === 'writing' ? t('processAnswered') : t('processWorking'));
+      return h(
+        'div',
+        { 'data-dsh-bots-process': steps.length, style: { marginBottom: 8, border: `1px solid ${C.border1}`, borderRadius: 10, padding: '5px 10px 6px' } },
+        h(
+          'button',
+          { type: 'button', className: 'dshb-link', 'data-dsh-bots-process-toggle': steps.length, onClick: () => setOpen((v) => !v), style: { fontSize: TINY, display: 'flex', alignItems: 'center', gap: 6, width: '100%', color: C.muted } },
+          Icon.layers(11),
+          h('span', null, t('processTitle', { n: steps.length })),
+          h('span', { style: { flex: 1 } }),
+          h('span', { style: { color: C.faint } }, open ? t('showLess') : t('showMore')),
+        ),
+        h(
+          'div',
+          { style: { display: 'flex', flexDirection: 'column', gap: 3, marginTop: 4 } },
+          shown.map((s, i) =>
+            h(
+              'div',
+              { key: `${s.at}-${i}`, 'data-dsh-bots-process-step': s.kind, style: { fontSize: TINY, color: C.muted, display: 'flex', gap: 6, minWidth: 0 } },
+              h('span', { style: { flex: 'none', color: C.faint } }, Number.isFinite(Number(s.at)) ? fmtClock(Number(s.at)) : ''),
+              s.handle ? h('span', { style: { flex: 'none', fontWeight: 600, color: C.primary } }, `@${s.handle}`) : null,
+              h('span', { style: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, line(s)),
+            ),
+          ),
+        ),
+      );
+    }
+
     function ChatTab({ t, bot, env, toast, project = '', projectKey = '', cast = [], onAddress, shared = false }) {
       // Inside a project group, this chat is that project's conversation with the bot (Bots 0.17.5).
       // `shared` is the group's own timeline (Bots 0.19.4): every member's messages in one list, each
@@ -3064,6 +3102,8 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
               { style: { maxWidth: 880, margin: '0 auto' } },
               // Questions of its own conversation; a task's wait in the task.
               h(AskCards, { t, sessionId: bot.sessionId, env, onAnswered: () => void reload() }),
+              // In a group, the work the members are doing, step by step (Bots 0.19.5).
+              shared ? h(ProcessLog, { t, project }) : null,
               previewUrl ? h('div', { 'data-dsh-bots-composer-preview': previewUrl, style: { marginBottom: 8, maxHeight: 260, overflow: 'auto' } }, h(LinkCard, { t, url: previewUrl })) : null,
               h(
                 'div',
@@ -10061,6 +10101,9 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         act_tool: 'Using {detail}',
         composer: 'Message @{handle}',
         composerHint: 'Enter to send · Shift+Enter for a new line · paste or drop images',
+        processTitle: 'Work · {n} steps',
+        processAnswered: 'wrote a reply',
+        processWorking: 'working now',
         mentionHint: 'Name someone with @: {handles}',
         attachImage: 'Attach images (or paste / drop them here)',
         removeImage: 'Remove this image',
@@ -11204,6 +11247,9 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         composer: '给 @{handle} 发消息',
         composerHint: 'Enter 发送 · Shift+Enter 换行 · 可粘贴或拖入图片',
         attachImage: '添加图片（也可以直接粘贴、拖进来）',
+        processTitle: '过程 · {n} 步',
+        processAnswered: '写了回复',
+        processWorking: '正在做',
         mentionHint: '点名用 @：{handles}',
         removeImage: '移除这张图片',
         imageFailed: '图片没能保存',

@@ -2091,6 +2091,27 @@ function boardBoot(config) {
 }
 const promptOf = (agent) => [...agent.sections.values()].map((s) => s.text?.()).join('\n');
 
+test('0.19.5: a group chat can show the steps its members took, tool calls and answers', async (t) => {
+  const { api, h, dispose } = boardBoot();
+  t.after(dispose);
+  const forge = api.store.find('forge');
+  const { project } = await api.request('POST', '/projects/save', { project: { name: 'Group work', key: 'GRP', members: [forge.id] } });
+  const opened = await api.request('POST', '/projects/session', { id: project.id, bot: forge.id });
+  await api.request('POST', '/send', { to: forge.id, text: 'Read it and answer', project: project.id });
+  h.tools.set('read', { name: 'read', execute: async () => ({ ok: true }) });
+  await h.step(opened.sessionId, { calls: [{ name: 'read', args: { path: 'lib/a.mjs' } }], answer: 'Done.' });
+  const log = await api.request('GET', `/activity/log?project=${project.id}`);
+  assert.equal(log.ok, true);
+  // The tool call and the answer, in the order they happened, with who did them.
+  assert.deepEqual(log.steps.map((s) => s.kind), ['tool', 'writing']);
+  assert.equal(log.steps[0].handle, forge.handle);
+  assert.match(String(log.steps[0].tool), /read/i);
+  assert.match(String(log.steps[0].detail), /a\.mjs/);
+  // Nothing of it in another group: the log is the group's own.
+  const { project: other } = await api.request('POST', '/projects/save', { project: { name: 'Other', key: 'OTH' } });
+  assert.deepEqual((await api.request('GET', `/activity/log?project=${other.id}`)).steps, []);
+});
+
 test('0.19.1: a reply in a group chat is filed under the group, not in the bot\'s own chat', async (t) => {
   const { api, h, dispose } = boardBoot();
   t.after(dispose);
