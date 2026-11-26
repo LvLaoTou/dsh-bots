@@ -36,6 +36,7 @@ import { basename, isAbsolute, join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 
+import { bareBody, isIdleText, picksFrom, stepOf, MAX_DEPTH } from './lib/group-loop.mjs';
 import { createStore, initialsOf, slugify, SKILL_RE, PALETTE, MAX_SKILLS, MAX_SKILLS_ON } from './lib/store.mjs';
 import { catalog as appCatalog, CATEGORIES, mcpConfigFor } from './lib/apps.mjs';
 import { ABILITIES } from './lib/abilities.mjs';
@@ -909,13 +910,115 @@ export function apply(ctx, config, deps = {}) {
    * The agent of `bot`'s conversation inside `project` (Bots 0.17.5), made on first need. A bot that
    * does not staff the project joins it: talking to it there is asking it to work on it.
    */
-  async function projectAgentOf(bot, project) {
-    const p = projectByRefOrThrow(project);
+  async function projectAgentOf(bot, project) {    const p = projectByRefOrThrow(project);
     if (!p.members.includes(bot.id)) projects.addMember(p.id, bot.id);
     const made = await ensureProjectSessions(bot, [p.id]);
     const found = made.find((x) => x.project.id === p.id);
     if (!found) throw new Error(`could not open @${bot.handle}'s conversation in project ${p.key}`);
     return found.agent;
+  }
+
+  // --- group rounds (Bots 0.20) ----------------------------------------------------------------
+  // A message in a group is a round: the bot it was addressed to answers, then whoever that answer
+  // names with `@`, one at a time, until nobody is called or a guard stops it. The guards live in
+  // lib/group-loop.mjs; what is here is the waiting and the handing on.
+
+  /** How long one member gets to end its turn before the round goes on without it. */
+  const ROUND_TURN_TIMEOUT_MS = 4 * 60_000;
+  /** Project ids with a round running now: a second message joins it rather than starting another. */
+  const roundsRunning = new Set();
+  /** Session ids a round waits on, and when each last went idle. */
+  const idleWaiters = new Map();
+  const idleAt = new Map();
+  function releaseIdle(sessionId) {
+    idleAt.set(sessionId, nowMs());
+    const list = idleWaiters.get(sessionId);
+    if (!list) return;
+    idleWaiters.delete(sessionId);
+    for (const done of list) done(true);
+  }
+  /** Resolves true when that conversation ends its turn, false if it did not within `ms`. */
+  function waitIdle(sessionId, since, ms) {
+    if (!sessionId) return Promise.resolve(false);
+    if ((idleAt.get(sessionId) ?? 0) >= since) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      let settled = false;
+      const done = (v) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(v);
+      };
+      const timer = setTimeout(() => done(false), ms);
+      try {
+        timer.unref?.();
+      } catch {
+        // A timer that cannot unref is still a timer.
+      }
+      const list = idleWaiters.get(sessionId) ?? [];
+      list.push(done);
+      idleWaiters.set(sessionId, list);
+    });
+  }
+  /** The last few things said in a group, as lines a member can read: who, and what. */
+  function groupDigest(projectId, limit = 8) {
+    return store
+      .messages({ project: projectId, limit: 40 })
+      .filter((m) => m.kind !== 'system' && String(m.text ?? '').trim() !== '')
+      .slice(-limit)
+      .map((m) => `${m.from === 'user' ? 'the person' : `@${store.get(m.from)?.handle ?? m.from}`}: ${clipLine(m.text, 400)}`);
+  }
+
+  /**
+   * One round of a group chat (Bots 0.20): `firstBotId` has already been asked in `firstSessionId`;
+   * its answer decides whether anyone is called next.
+   */
+  async function runGroupRound(p, firstBotId, firstSessionId) {
+    const cast = p.members.map((id) => store.get(id)).filter(Boolean);
+    if (cast.length < 2) return; // a group of one has nobody to talk to
+    if (roundsRunning.has(p.id)) return;
+    roundsRunning.add(p.id);
+    try {
+      const handles = cast.map((b) => b.handle).filter(Boolean);
+      const said = [];
+      let bot = store.get(firstBotId);
+      let sid = firstSessionId;
+      let replies = 0;
+      let idleRelays = 0;
+      let depth = 0;
+      for (;;) {
+        const since = nowMs();
+        const ended = await waitIdle(sid, since, ROUND_TURN_TIMEOUT_MS);
+        // A member that does not finish in time lets the round go on (its answer arrives later).
+        if (!ended) return;
+        const last = store
+          .messages({ project: p.id, bot: bot?.id, limit: 20 })
+          .filter((m) => m.kind === 'reply')
+          .at(-1);
+        if (!last) return;
+        replies += 1;
+        // A post that only acknowledges, only reports nothing to do, or repeats what the round already
+        // said ends the hand-on: this is what stops two bots thanking each other forever.
+        const idle = isIdleText(last.text, handles, said);
+        if (idle) idleRelays += 1;
+        else said.push(bareBody(last.text, handles));
+        const next = picksFrom(last.text, cast, bot.id);
+        const step = stepOf({ replies, depth, idleRelays, next });
+        if (!step.go) return;
+        const target = step.next[0];
+        depth += 1;
+        const digest = groupDigest(p.id);
+        const sent = await userSend(
+          store.get(target.id),
+          `[群聊接力] @${bot.handle} 在群里点了你的名。刚才群里说的是：\n\n${digest.join('\n')}\n\n接着说。没有新的东西就说“收到”，不要重复别人说过的话。`,
+          { project: p.id },
+        );
+        bot = store.get(target.id);
+        sid = sent.sessionId;
+      }
+    } finally {
+      roundsRunning.delete(p.id);
+    }
   }
 
   async function flush(agent) {
@@ -4014,6 +4117,8 @@ export function apply(ctx, config, deps = {}) {
       if (sid && payload.status === 'idle' && openTasks.has(sid)) settleSoon(sid, 300);
       else if (sid && payload.status === 'idle' && memoStale.delete(sid)) memoText.delete(sid);
       if (sid && payload.status === 'idle') ticketIdle(ticketOf(sid));
+      // A group round waiting for this turn to end hears it here (Bots 0.20).
+      if (sid && payload.status === 'idle') releaseIdle(sid);
     } catch {
       // Ignored.
     }
@@ -6655,6 +6760,13 @@ export function apply(ctx, config, deps = {}) {
         if (!bot) return { ok: false, reason: 'no such bot' };
         // `project` (Bots 0.17.5): talk to it inside that project group, in its conversation there.
         const sent = await userSend(bot, body.text, { replyTo: String(body.replyTo ?? ''), images: imageRefs(body.images), project: String(body.project ?? '') });
+        // A message into a group starts a round (Bots 0.20): this bot answers, then whoever it names.
+        // It runs on its own, so the person's message is acknowledged at once.
+        const inGroup = String(body.project ?? '').trim();
+        if (inGroup) {
+          const p = projects.get(inGroup);
+          if (p) void runGroupRound(p, bot.id, sent.sessionId).catch(() => {});
+        }
         return { ok: true, sessionId: sent.sessionId, ...(sent.message ? { message: sent.message } : {}) };
       },
     },

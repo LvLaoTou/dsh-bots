@@ -5,6 +5,24 @@ English | [简体中文](CHANGELOG.zh-CN.md)
 What changed in each version of Bots, newest first, and what to do after upgrading. Bots tells you when a new
 version is out ([Updates](README.md#updates)).
 
+## 0.20.0 — 2026-11-26
+
+**A real group chat: the bots discuss with each other.** The round design follows DS-Bot (Fei-Craft).
+
+- A message in a group opens a round: the member you addressed answers, and **whoever that answer names
+  with `@` answers next**, one at a time. Each speaker is handed what the round already said, so it is a
+  relayed discussion rather than members talking past each other.
+- **Four guards against spinning** (the same ideas DS-Bot uses):
+  1. **Only a name hands it on** — an answer that names nobody ends the round;
+  2. **Nothing new does not count** — an answer that is only an acknowledgement ("收到", "thanks"), a status
+     line ("待命", "no pending tasks"), or a repeat of what the round already said is not passed on, which is
+     what stops two bots thanking each other forever;
+  3. **Budgets** — at most 12 answers in a round, and an `@` chain at most 3 deep;
+  4. **A timeout does not block** — a member that has not finished in 4 minutes lets the round go on.
+- Only one member speaks at a time (serialised), so two bots never talk over each other.
+- Everything shows in the group: each member's tool steps in "Work · N steps", and every message on the
+  timeline.
+
 ## 0.19.5 — 2026-11-26
 
 - **A group chat shows what its members are doing**, not only the last line they wrote. Above the composer sits

@@ -2091,6 +2091,49 @@ function boardBoot(config) {
 }
 const promptOf = (agent) => [...agent.sections.values()].map((s) => s.text?.()).join('\n');
 
+test('0.20: a group message starts a round — the answer names someone, that member answers, and an idle reply ends it', async (t) => {
+  const { api, h, dispose } = boardBoot();
+  t.after(dispose);
+  const forge = api.store.find('forge');
+  const scout = api.store.find('scout');
+  const { project } = await api.request('POST', '/projects/save', { project: { name: 'Group talk', key: 'GT', members: [forge.id, scout.id] } });
+  const opened = await api.request('POST', '/projects/session', { id: project.id, bot: forge.id });
+  await api.request('POST', '/send', { to: forge.id, text: '开工吧', project: project.id });
+  // The lead answers and hands it on by naming the other member.
+  await h.step(opened.sessionId, { answer: '@scout 你先把方案写出来' });
+  await settle();
+  const toScout = api.store.messages({ project: project.id, bot: scout.id }).filter((m) => m.kind === 'user');
+  assert.equal(toScout.length, 1, 'the round called @scout');
+  assert.match(toScout[0].text, /群聊接力/);
+  assert.match(toScout[0].text, /@scout 你先把方案写出来/, 'it carries what the round said');
+  // Scout only acknowledges: nothing new, so the round ends instead of passing the microphone back.
+  await h.step(toScout[0].sid, { answer: '收到' });
+  await settle();
+  assert.equal(api.store.messages({ project: project.id, bot: forge.id }).filter((m) => m.kind === 'user').length, 1, 'no second hop');
+});
+
+test('0.20: a round stops at its reply budget, so two bots cannot talk forever', async (t) => {
+  const { api, h, dispose } = boardBoot();
+  t.after(dispose);
+  const forge = api.store.find('forge');
+  const scout = api.store.find('scout');
+  const { project } = await api.request('POST', '/projects/save', { project: { name: 'Loop', key: 'LP', members: [forge.id, scout.id] } });
+  const first = await api.request('POST', '/projects/session', { id: project.id, bot: forge.id });
+  await api.request('POST', '/send', { to: forge.id, text: '开始', project: project.id });
+  // Each answer names the other, with something new every time: only the budget can stop this.
+  let step = await h.step(first.sessionId, { answer: '第一点：成本要压到三成以内 @scout' });
+  await settle();
+  for (let i = 2; i <= 13; i += 1) {
+    const pending = api.store.messages({ project: project.id }).filter((m) => m.kind === 'user' && m.text.includes('群聊接力')).at(-1);
+    if (!pending) break;
+    await h.step(pending.sid, { answer: `第 ${i} 点：每条都不一样的内容，编号 ${i} @${i % 2 ? 'forge' : 'scout'}` });
+    await settle();
+  }
+  const relays = api.store.messages({ project: project.id }).filter((m) => m.kind === 'user' && m.text.includes('群聊接力')).length;
+  assert.ok(relays <= 12, `the round stopped at its budget (relays: ${relays})`);
+  void step;
+});
+
 test('0.19.5: a group chat can show the steps its members took, tool calls and answers', async (t) => {
   const { api, h, dispose } = boardBoot();
   t.after(dispose);
