@@ -5,6 +5,14 @@ English | [简体中文](CHANGELOG.zh-CN.md)
 What changed in each version of Bots, newest first, and what to do after upgrading. Bots tells you when a new
 version is out ([Updates](README.md#updates)).
 
+## 0.19.2 — 2026-11-26
+
+- **Picking a lead no longer shuffles the cast.** The switch used to move that bot to the front of the array, so the
+  whole column re-ordered and it looked like nothing happened. The rows stay in the order the bots were added; the
+  switch only changes who leads, and the lead is put first when the cast is saved (which is how the data carries it).
+- If the lead is removed from the group, the lead passes to the first bot left, so there is never none.
+- The hint under the cast now says "pick it with the switch" instead of "the first one picked leads".
+
 ## 0.19.1 — 2026-11-25
 
 - **Fixed: a group chat never received the answer.** The bot's reply was logged without its `project`, so it landed in

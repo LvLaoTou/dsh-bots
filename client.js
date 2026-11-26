@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
     const NS = 'bots';
     const PANEL_ID = 'bots';
     /** The Bots this page is (package.json): the Host says which one it runs, and a stale Host is pointed out. */
-    const BOTS_VERSION = '0.19.1';
+    const BOTS_VERSION = '0.19.2';
     /** How close to a new topic Harness closing the panel counts as caused by it (it archived the conversation behind). */
     const ROTATE_WINDOW_MS = 3000;
     const R = '/__dsh_bots/';
@@ -3971,6 +3971,9 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
       const [form, setForm] = useState(() => ({ name: start?.name ?? '', key: start?.key ?? '', dir: start?.dir ?? '', repo: start?.repo ?? '', brief: start?.brief ?? '' }));
       // The cast is edited apart from the form: it is sent only when it actually changed (Bots 0.17.5).
       const [cast, setCast] = useState(() => (start?.members ?? []).map((m) => m.id));
+      // Who leads, kept beside the cast rather than as its first entry (Bots 0.19.2), so picking a lead
+      // does not reorder the list the person is looking at.
+      const [lead, setLead] = useState(() => (start?.members ?? [])[0]?.id ?? '');
       const [error, setError] = useState('');
       const [busy, setBusy] = useState(false);
       const [removing, setRemoving] = useState(null);
@@ -4016,16 +4019,24 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         setError('');
       };
       const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
-      /** A bot joins or leaves the cast (Bots 0.17.5); the first one added leads the project. */
-      const toggleMember = (id) => setCast((list) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]));
-      /** The lead is the cast's first bot, so making one lead moves it to the front (Bots 0.19). */
-      const setLead = (id) => setCast((list) => (list[0] === id ? list : [id, ...list.filter((x) => x !== id)]));
+      /** A bot joins or leaves the cast (Bots 0.17.5); it stays where it was put, so nothing jumps. */
+      const toggleMember = (id) => {
+        const next = cast.includes(id) ? cast.filter((x) => x !== id) : [...cast, id];
+        setCast(next);
+        // The lead leaving hands it to whoever is left first.
+        if (!next.includes(lead)) setLead(next[0] ?? '');
+      };
+      /** Who leads (Bots 0.19.2): chosen apart from the cast's order, so the list is not reshuffled under
+       * the cursor; the saved cast puts the lead first, which is how the data carries it. */
+      const makeLead = (id) => setLead(id);
       const save = () => {
         if (busy || !form.name.trim()) return;
         setBusy(true);
         // The cast is sent only when it changed: a project saved without one keeps whatever it had (Bots 0.17.5).
         const payload = { ...(editing?.id ? { id: editing.id } : {}), ...form };
-        if ((editing?.members ?? []).map((m) => m.id).join(',') !== cast.join(',')) payload.members = cast;
+        // Stored lead first, which is what says who leads; the form's own order is left alone (Bots 0.19.2).
+        const ordered = lead && cast.includes(lead) ? [lead, ...cast.filter((x) => x !== lead)] : cast;
+        if ((editing?.members ?? []).map((m) => m.id).join(',') !== ordered.join(',')) payload.members = ordered;
         void postJson('projects/save', { project: payload })
           .then((r) => {
             if (r && r.ok !== false) {
@@ -4094,13 +4105,12 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
                             style: { display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' },
                           },
                           h('span', null, `@${b.handle}`),
-                          cast[0] === b.id ? h('span', { style: { fontSize: TINY, opacity: 0.7 } }, t('projectMemberLead')) : null,
+                          lead === b.id ? h('span', { style: { fontSize: TINY, opacity: 0.7 } }, t('projectMemberLead')) : null,
                         ),
                       ),
                     ),
-                    // Who leads it (Bots 0.19): the cast keeps its lead first, so switching one on moves that
-                    // bot to the front and the rest keep their order. There is always exactly one while the
-                    // cast is not empty, which is why the lead's own switch is on and cannot be turned off.
+                    // Who leads it (Bots 0.19): one switch each. Switching one on takes the lead from the
+                    // other and leaves the rows where they are (0.19.2) — the saved cast puts it first.
                     cast.length
                       ? h(
                           'div',
@@ -4108,13 +4118,13 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
                           cast.map((id) => {
                             const b = bots.find((x) => x.id === id);
                             if (!b) return null;
-                            const lead = cast[0] === id;
+                            const isLead = lead === id;
                             return h(
                               'div',
                               { key: id, 'data-dsh-bots-project-lead': id, style: { display: 'flex', alignItems: 'center', gap: 8 } },
                               h('span', { style: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: SMALL } }, `@${b.handle}`),
-                              h('span', { style: { flex: 'none', fontSize: TINY, color: lead ? C.muted : C.faint } }, t('projectLeadSwitch')),
-                              h(Switch, { on: lead, disabled: lead, title: t('projectLeadSwitch'), 'data-dsh-bots-project-lead-switch': id, onChange: () => setLead(id) }),
+                              h('span', { style: { flex: 'none', fontSize: TINY, color: isLead ? C.muted : C.faint } }, t('projectLeadSwitch')),
+                              h(Switch, { on: isLead, disabled: isLead, title: t('projectLeadSwitch'), 'data-dsh-bots-project-lead-switch': id, onChange: () => makeLead(id) }),
                             );
                           }),
                         )
@@ -10737,7 +10747,7 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         projectDirHint: 'Its tasks work in this folder (Harness adds it as a workspace). Leave it empty for the Bots workspace.',
         projectNoDir: 'No folder: its tasks work in the Bots workspace',
         projectMembers: 'The cast',
-        projectMembersHint: 'The bots that work on this project. Each gets a conversation here that reads this project\'s memory only, so the same bot keeps two projects apart. The first one picked leads it.',
+        projectMembersHint: 'The bots that work on this project. Each gets a conversation here that reads this project\'s memory only, so the same bot keeps two groups apart. One of them leads it: pick that one with the switch.',
         projectNoBots: 'Create a bot first: a project is staffed by bots.',
         projectMemberLead: 'lead',
         projectLeadSwitch: 'Lead',
@@ -11868,7 +11878,7 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         projectDirHint: '群聊的任务在这个目录里工作。留空会自动分配一个（每个群聊一个，记忆也绑在它上面）。',
         projectNoDir: '自动分配一个目录',
         projectMembers: '群聊成员',
-        projectMembersHint: '在这个群聊里干活的 bot。每个在这里有一个自己的会话，只读这个群聊的记忆，所以同一个 bot 不会把两个群聊混在一起。第一个选的负责这个群聊。',
+        projectMembersHint: '在这个群聊里干活的 bot。每个在这里有一个自己的会话，只读这个群聊的记忆，所以同一个 bot 不会把两个群聊混在一起。负责人用下面的开关指定。',
         projectNoBots: '先建一个 bot：群聊是由 bot 组成的。',
         projectMemberLead: '负责',
         projectLeadSwitch: '负责人',
