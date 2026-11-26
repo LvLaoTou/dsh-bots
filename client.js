@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
     const NS = 'bots';
     const PANEL_ID = 'bots';
     /** The Bots this page is (package.json): the Host says which one it runs, and a stale Host is pointed out. */
-    const BOTS_VERSION = '0.19.2';
+    const BOTS_VERSION = '0.19.3';
     /** How close to a new topic Harness closing the panel counts as caused by it (it archived the conversation behind). */
     const ROTATE_WINDOW_MS = 3000;
     const R = '/__dsh_bots/';
@@ -10716,9 +10716,9 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         githubPrivate: 'Only the repository\'s owner, members and collaborators start work: an issue counts when one of them wrote it or put the label on it, a comment when one of them wrote it. Everyone else is ignored, without an answer.',
         githubIgnored: 'Ignored {n} issues or comments from people who are not the repository\'s owner, members or collaborators (last: {name}).',
         channelHowGithub: 'Add it to your dispatcher with a token and the repositories to watch. Nothing to pair: put the label on an issue to hand it to the team.',
-        projectRepo: 'GitHub repository',
-        projectRepoHint: 'Issues from it (GitHub Issues app) are filed under this project. owner/repo, or its address (GitHub Enterprise too); leave it empty for none.',
-        projectRepoPlaceholder: 'owner/repo or https://github.example.com/owner/repo',
+        projectRepo: 'Git repository',
+        projectRepoHint: 'Any git repository this group chat works on: owner/repo on GitHub, host/owner/repo on GitLab, Gitea or your own server, or its address. GitHub issues become cards here (through the GitHub Issues app); a repository elsewhere is kept as the place this group works. Leave it empty if not needed.',
+        projectRepoPlaceholder: 'acme/site or https://gitlab.com/team/site',
         // cards that wait for others (Bots 0.13)
         cardAfter: 'Starts after',
         cardAfterNone: 'Nothing: now, or when I start it',
@@ -11847,9 +11847,9 @@ button.dshb-qline-light:hover{color:inherit;opacity:1}
         githubPrivate: '只有仓库的 owner、成员和协作者能让团队开工：issue 要是他们写的或者是他们打的标签，评论要是他们写的。其他人的一律忽略，不做回复。',
         githubIgnored: '已忽略 {n} 条不是仓库 owner、成员或协作者的 issue 或评论（最近一位：{name}）。',
         channelHowGithub: '把它加给调度员，填上令牌和要关注的仓库。不用配对：给 issue 打上标签就是交给团队。',
-        projectRepo: 'GitHub 仓库',
-        projectRepoHint: '这个仓库的 issue（GitHub Issues 应用）会归到这个群聊下。写 owner/repo 或仓库地址（GitHub Enterprise 也行）；不需要就留空。',
-        projectRepoPlaceholder: 'owner/repo 或 https://github.example.com/owner/repo',
+        projectRepo: 'Git 仓库',
+        projectRepoHint: '这个群聊做的 git 仓库：GitHub 写 owner/repo，GitLab、Gitea、自建服务器写 host/owner/repo，也可以直接贴仓库地址。GitHub 上的 issue 会归到这里（走 GitHub Issues 应用）；其他平台只作为这个群聊的工作仓库记着。不需要就留空。',
+        projectRepoPlaceholder: 'acme/site 或 https://gitlab.com/team/site',
         // 等别的卡做完再开始（Bots 0.13）
         cardAfter: '在这之后开始',
         cardAfterNone: '无：现在开始，或等我手动开始',

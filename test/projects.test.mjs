@@ -83,13 +83,17 @@ test('projects are created with a suggested key, numbered cards, checked fields,
   assert.equal(again.get('RD'), undefined);
 });
 
-test('a project\'s repository is owner/repo, or kept with its server on GitHub Enterprise', () => {
+test('a project\'s repository is any git repository: owner/repo, or host/owner/repo elsewhere', () => {
   const projects = createProjects(dirOf(), { home: dirOf() });
   assert.equal(projects.create({ name: 'Site', repo: 'https://github.com/acme/site.git' }).repo, 'acme/site');
   const ghe = projects.create({ name: 'Portal', repo: 'https://GHE.corp.example/team/portal/issues' });
   assert.equal(ghe.repo, 'ghe.corp.example/team/portal');
+  // Not GitHub only (Bots 0.19.3): GitLab, Gitea and a self-hosted server keep their host.
+  assert.equal(projects.create({ name: 'Self', repo: 'https://gitlab.com/team/site.git' }).repo, 'gitlab.com/team/site');
+  assert.equal(projects.create({ name: 'Bare', repo: 'gitlab.com/team/other' }).repo, 'gitlab.com/team/other');
+  assert.equal(projects.create({ name: 'Ssh', repo: 'git@git.example.com:team/app.git' }).repo, 'git.example.com/team/app');
   assert.throws(() => projects.create({ name: 'Other', repo: 'git@ghe.corp.example:team/portal.git' }), /ghe\.corp\.example\/team\/portal belongs to project PORTAL already/);
-  assert.throws(() => projects.create({ name: 'Other', repo: 'not a repo' }), /GitHub Enterprise/);
+  assert.throws(() => projects.create({ name: 'Other', repo: 'not a repo' }), /host\/owner\/repo anywhere else/);
   assert.equal(projects.update(ghe.id, { repo: '' }).repo, '');
 });
 

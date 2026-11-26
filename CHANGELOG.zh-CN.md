@@ -4,6 +4,14 @@
 
 Bots 每个版本改了什么、升级后要做什么，新版本在前。有新版本时 Bots 会提醒你（见[更新](README.zh-CN.md#更新)）。
 
+## 0.19.3 — 2026-11-26
+
+- **「GitHub 仓库」改成「Git 仓库」。** 不再限定 GitHub：`owner/repo` 是 GitHub，`host/owner/repo` 可以写
+  GitLab、Gitea、自建服务器，也可以直接贴仓库地址（https / ssh / `git@host:owner/repo`），都会保留 host。
+  之前其实就存得下这些，只是文案和报错把它说成了 GitHub。
+- 仓库会写进项目提示里（`Its repository is …`），所以不是 GitHub 的项目，bot 也知道代码在哪儿。
+- GitHub 才有的能力照旧：只有 GitHub 仓库的 issue 才会变成看板卡片（走 GitHub Issues 应用）；别的平台只是记着这个仓库。
+
 ## 0.19.2 — 2026-11-26
 
 - **设负责人不再让成员列表跳。** 之前点开关是把那个 bot 在数组里挪到第一位，所以整列会重排，看着像没生效。

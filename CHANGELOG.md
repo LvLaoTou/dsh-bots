@@ -5,6 +5,15 @@ English | [简体中文](CHANGELOG.zh-CN.md)
 What changed in each version of Bots, newest first, and what to do after upgrading. Bots tells you when a new
 version is out ([Updates](README.md#updates)).
 
+## 0.19.3 — 2026-11-26
+
+- **"GitHub repository" is now "Git repository".** Not GitHub only: `owner/repo` means github.com, `host/owner/repo`
+  covers GitLab, Gitea and your own server, and a repository address (https, ssh, `git@host:owner/repo`) is accepted —
+  the host is kept. Those forms already stored fine; the label, the hint and the error said GitHub.
+- The repository is written into the project's prompt, so a bot knows where the code lives on any host.
+- GitHub-only behaviour is unchanged: only a GitHub repository's issues become cards (through the GitHub Issues app);
+  elsewhere the repository is just kept as the place the group works.
+
 ## 0.19.2 — 2026-11-26
 
 - **Picking a lead no longer shuffles the cast.** The switch used to move that bot to the front of the array, so the
