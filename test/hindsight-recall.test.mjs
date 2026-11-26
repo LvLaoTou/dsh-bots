@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { bankOf, BLOCK_MAX, memoryBlock, recallMemories, recallUrl } from '../lib/hindsight-recall.mjs';
+import { bankFromConfig, bankOf, BLOCK_MAX, memoryBlock, recallMemories, recallUrl } from '../lib/hindsight-recall.mjs';
 
 const okResponse = (body) => ({ ok: true, json: async () => body });
 const badResponse = (status) => ({ ok: false, status, json: async () => ({}) });
@@ -9,6 +9,20 @@ test('a group bank is named after its key, and its recall has one address', () =
   assert.equal(bankOf('MILKTEA'), 'bots::chat::MILKTEA');
   assert.equal(bankOf('  '), 'bots::chat::');
   assert.equal(recallUrl('http://127.0.0.1:8888/', 'bots::chat::A'), 'http://127.0.0.1:8888/v1/default/banks/bots%3A%3Achat%3A%3AA/memories/recall');
+});
+
+test('the bank comes from the folder the group runs in, as the form configured it', () => {
+  const map = { 'C:\\a\\groups\\MILK': 'bots::chat::MILK', 'C:\\a': 'workspace::default', '/posix/g': 'project::x' };
+  assert.equal(bankFromConfig(map, 'C:\\a\\groups\\MILK'), 'bots::chat::MILK');
+  assert.equal(bankFromConfig(map, 'C:\\A\\Groups\\Milk\\'), 'bots::chat::MILK', 'case and a trailing slash do not matter');
+  assert.equal(bankFromConfig(map, 'C:\\a\\other'), 'workspace::default', 'a folder inside a mapped one');
+  assert.equal(bankFromConfig(map, 'C:\\b'), '', 'an unmapped folder has no bank');
+  assert.equal(bankFromConfig(map, ''), '');
+  assert.equal(bankFromConfig(null, 'C:\\a'), '');
+  // The longest match wins, so a nested mapping overrides its parent.
+  assert.equal(bankFromConfig({ 'C:\\a': 'outer', 'C:\\a\\b': 'inner' }, 'C:\\a\\b\\c'), 'inner');
+  // A folder whose name merely starts the same way is not inside it.
+  assert.equal(bankFromConfig({ '/work/g': 'x' }, '/work/gone'), '');
 });
 
 test('the recall endpoint is asked once, and its observations come back cleaned', async () => {

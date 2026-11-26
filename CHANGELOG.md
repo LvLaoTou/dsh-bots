@@ -5,6 +5,15 @@ English | [简体中文](CHANGELOG.zh-CN.md)
 What changed in each version of Bots, newest first, and what to do after upgrading. Bots tells you when a new
 version is out ([Updates](README.md#updates)).
 
+## 0.21.1 — 2026-11-26
+
+- **Memory comes from the bank the group is actually configured with, not from a guessed key.** It used to read
+  `bots::chat::<KEY>` only, so a group bound to an existing bank found nothing. It now reads `mapPathToBank` from the
+  memory config — the same "folder → bank" mapping the form writes when it binds — and takes the longest match for the
+  group's folder, so whichever bank you bound is the one used.
+- Only an unbound group, or a folder that is not in the map, falls back to `bots::chat::<KEY>`. Case, a trailing slash
+  and `/` versus `\` do not affect the match.
+
 ## 0.21.0 — 2026-11-26
 
 - **A group chat reads its Hindsight memory now, and every member reads the same one.** A group's bank is

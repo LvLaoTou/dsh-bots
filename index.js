@@ -36,7 +36,7 @@ import { basename, isAbsolute, join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 
-import { bankOf, memoryBlock, recallMemories, RECALL_TIMEOUT_MS } from './lib/hindsight-recall.mjs';
+import { bankFromConfig, bankOf, memoryBlock, recallMemories, RECALL_TIMEOUT_MS } from './lib/hindsight-recall.mjs';
 import { bareBody, isIdleText, picksFrom, stepOf, MAX_DEPTH } from './lib/group-loop.mjs';
 import { createStore, initialsOf, slugify, SKILL_RE, PALETTE, MAX_SKILLS, MAX_SKILLS_ON } from './lib/store.mjs';
 import { catalog as appCatalog, CATEGORIES, mcpConfigFor } from './lib/apps.mjs';
@@ -970,20 +970,25 @@ export function apply(ctx, config, deps = {}) {
 
   /** Project id → the block its members' prompts carry, and when it was read. */
   const groupMemory = new Map();
-  /** The Hindsight service this machine configured, or '' when it has none. */
-  function hindsightApiUrl() {
+  /** The memory config this machine has: where the service is, and the folder → bank map it uses. */
+  function hindsightSettings() {
     try {
       const cfg = JSON.parse(readFileSync(join(homedir(), '.hindsight', 'coding-agent.json'), 'utf8'));
-      return String(cfg?.apiUrl ?? '').trim() || 'http://127.0.0.1:8888';
+      return {
+        apiUrl: String(cfg?.apiUrl ?? '').trim() || 'http://127.0.0.1:8888',
+        map: cfg?.mapPathToBank && typeof cfg.mapPathToBank === 'object' ? cfg.mapPathToBank : {},
+      };
     } catch {
-      return ''; // No config: this machine has no Hindsight.
+      return { apiUrl: '', map: {} }; // No config: this machine has no Hindsight.
     }
   }
+  /** The bank a group is bound to, as the person configured it in the form; the convention when unbound. */
+  const bankForProject = (p, map) => bankFromConfig(map, p?.dir) || bankOf(p?.key);
   /** Read the group's bank for `query` and keep the block its members will see. */
   async function refreshGroupMemory(p, query) {
-    const apiUrl = hindsightApiUrl();
+    const { apiUrl, map } = hindsightSettings();
     if (!apiUrl || !p?.key || !String(query ?? '').trim()) return;
-    const memories = await recallMemories({ apiUrl, bankId: bankOf(p.key), query, timeoutMs: RECALL_TIMEOUT_MS });
+    const memories = await recallMemories({ apiUrl, bankId: bankForProject(p, map), query, timeoutMs: RECALL_TIMEOUT_MS });
     if (!memories.length) {
       groupMemory.delete(p.id);
       return;
